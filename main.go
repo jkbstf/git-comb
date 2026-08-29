@@ -28,7 +28,7 @@ uncommitted changes, commits unreachable from any remote, and stashes.
     -f, --fetch       fetch all remotes first, so behind is current
     -v, --verbose     list the branches that hold unpushed commits
     -a, --all         print clean repositories too
-        --only SIGNS  look only for these sign classes (e.g. DUS)
+    -o, --only SIGNS  look only for these sign classes (e.g. DUS)
     -j, --jobs N      probe N repositories in parallel (default %d)
         --hidden      descend into hidden directories
         --prune NAME  skip directories named NAME (repeatable;
@@ -71,6 +71,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 	fs.BoolVar(&opts.Hidden, "hidden", false, "")
 	fs.Var(&opts.Prune, "prune", "")
 	fs.StringVar(&onlySigns, "only", "", "")
+	fs.StringVar(&onlySigns, "o", "", "")
 	fs.StringVar(&colorWhen, "color", "auto", "")
 	fs.BoolVar(&showVersion, "version", false, "")
 
@@ -161,10 +162,16 @@ func parseArgs(fs *flag.FlagSet, args []string) ([]string, error) {
 	return append(roots, tail...), nil
 }
 
-// expandShortFlags rewrites "-fv" into "-f -v" and "-j4" into "-j 4",
-// which the standard flag package does not do on its own.
+// expandShortFlags rewrites "-fv" into "-f -v" and attached values
+// like "-j4" or "-oDUS" into "-j 4" and "-o DUS", which the standard
+// flag package does not do on its own. Following getopt convention,
+// the leftmost letter decides: a value-taking short consumes the rest
+// of the token as its argument.
 func expandShortFlags(args []string) []string {
-	const boolShorts = "fva"
+	const (
+		boolShorts  = "fva"
+		valueShorts = "jo"
+	)
 	out := make([]string, 0, len(args))
 	for _, a := range args {
 		if len(a) < 3 || a[0] != '-' || a[1] == '-' {
@@ -173,8 +180,8 @@ func expandShortFlags(args []string) []string {
 		}
 		body := a[1:]
 		switch {
-		case body[0] == 'j' && allDigits(body[1:]):
-			out = append(out, "-j", body[1:])
+		case strings.IndexByte(valueShorts, body[0]) >= 0:
+			out = append(out, a[:2], body[1:])
 		case strings.Trim(body, boolShorts) == "":
 			for _, c := range body {
 				out = append(out, "-"+string(c))
@@ -184,18 +191,6 @@ func expandShortFlags(args []string) []string {
 		}
 	}
 	return out
-}
-
-func allDigits(s string) bool {
-	if s == "" {
-		return false
-	}
-	for _, r := range s {
-		if r < '0' || r > '9' {
-			return false
-		}
-	}
-	return true
 }
 
 // summary is the one human line, written to stderr so stdout stays a

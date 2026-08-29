@@ -58,7 +58,7 @@ column, the repository path, and the checked-out branch.
 | `-f, --fetch` | fetch all remotes first, so behind is current |
 | `-v, --verbose` | list the branches that hold unpushed commits |
 | `-a, --all` | print clean repositories too |
-| `--only SIGNS` | look only for these sign classes, e.g. `--only DUS` |
+| `-o, --only SIGNS` | look only for these sign classes, e.g. `-o DUS` |
 | `-j, --jobs N` | probe N repositories in parallel |
 | `--hidden` | descend into hidden directories |
 | `--prune NAME` | skip directories named NAME (repeatable) |

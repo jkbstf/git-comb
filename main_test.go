@@ -60,6 +60,9 @@ func TestRunOnlyFlagAccepted(t *testing.T) {
 	if code := run([]string{"--only", "dus", t.TempDir()}, &stdout, &stderr); code != 0 {
 		t.Errorf("exit = %d, want 0: %s", code, stderr.String())
 	}
+	if code := run([]string{"-oDUS", t.TempDir()}, &stdout, &stderr); code != 0 {
+		t.Errorf("exit = %d for -oDUS, want 0: %s", code, stderr.String())
+	}
 }
 
 func TestRunRejectsBadColor(t *testing.T) {
@@ -128,7 +131,10 @@ func TestExpandShortFlags(t *testing.T) {
 		{"triple", []string{"-fva"}, []string{"-f", "-v", "-a"}},
 		{"attached jobs value", []string{"-j4"}, []string{"-j", "4"}},
 		{"attached multi-digit", []string{"-j16"}, []string{"-j", "16"}},
+		{"attached only value", []string{"-oDUS"}, []string{"-o", "DUS"}},
+		{"attached lowercase only", []string{"-odus"}, []string{"-o", "dus"}},
 		{"plain short untouched", []string{"-f"}, []string{"-f"}},
+		{"bare value short untouched", []string{"-o"}, []string{"-o"}},
 		{"long flags untouched", []string{"--fetch"}, []string{"--fetch"}},
 		{"unknown combo left for the parser", []string{"-fx"}, []string{"-fx"}},
 		{"positional untouched", []string{"dir"}, []string{"dir"}},
