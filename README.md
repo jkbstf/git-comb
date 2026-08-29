@@ -43,6 +43,41 @@ runs any executable named `git-comb` as `git comb`.
 
 Requires git 2.31 or newer on `PATH`.
 
+## Running from source
+
+```
+git clone https://github.com/jkbstf/git-comb.git
+cd git-comb
+go run . ~/projects
+```
+
+`go run` compiles whatever is on disk and passes the exit status
+through, but note that it prints its own `exit status 1` line to
+stderr whenever findings exist — which is this tool's normal result.
+For noise-free runs build the binary instead (it is gitignored):
+
+```
+go build -o git-comb .
+./git-comb ~/projects
+```
+
+To keep the `git comb` spelling while working from source, use a git
+alias. Git resolves aliases before searching `PATH`, so this shadows
+an installed `git-comb` until the alias is removed:
+
+```
+git config --global alias.comb '!go run /path/to/git-comb'
+```
+
+Or run it without cloning at all:
+
+```
+go run github.com/jkbstf/git-comb@latest ~/projects
+```
+
+Tests run with plain `go test ./...`; they build throwaway fixture
+repositories in temporary directories and skip when git is absent.
+
 ## Usage
 
 ```
