@@ -86,14 +86,35 @@ scripts and shell prompts.
   them, which is not true of tools that read `.git` themselves.
 - Read-only by construction: probes pass `--no-optional-locks`, so a
   scan never writes to a repository or races an editor for the index.
-  The one exception is the opt-in `--fetch`.
-- Linked worktrees are recognized, and state they share with their
-  primary worktree — unpushed commits, stashes — is counted once.
+  The one exception is the opt-in `--fetch`, which runs once per
+  repository (not once per worktree), uses your configured credential
+  helpers, and never prompts on the terminal — an unreachable remote
+  is reported as `R`, not a hang.
+- Linked worktrees are recognized: commits on branches and stashes
+  live in the shared ref store and are counted once per repository —
+  at the primary worktree, or at one of the linked worktrees when the
+  primary is outside the scanned tree. Each worktree still reports
+  its own files and its own detached-HEAD commits.
+- Probes ignore inherited `GIT_DIR`/`GIT_WORK_TREE`, so running from
+  a git hook or an exported shell cannot redirect the scan.
 - Hidden directories and `node_modules` are skipped during discovery;
-  `--prune` extends the skip list, `--hidden` narrows it.
+  `--prune` extends the skip list, `--hidden` narrows it. Symlinked
+  roots are resolved before walking.
 - Repositories are probed in parallel; a repository that cannot be
-  probed becomes a reported finding, never an aborted scan.
+  probed becomes a reported `!` finding (exit 2), never an aborted
+  scan.
 - No dependencies beyond the Go standard library.
+
+## Notes
+
+- Scanning goes downward from each directory: run `git comb` at the
+  top of your projects tree, not inside one repository.
+- Bare repositories (a directory that *is* a git dir, with no
+  worktree) are not scanned.
+- `--verbose` runs one `rev-list` per local branch in repositories
+  with unpushed work, so it costs more on branch-heavy repositories.
+- The summary line goes to stderr; stdout carries only findings, one
+  repository per line.
 
 ## License
 
