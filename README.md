@@ -1,13 +1,100 @@
-# git-outline
+# git-comb
 
-**DISCLAIMER: this program is a work in progress and is subject to breaking changes**
+Comb a directory tree for Git work that exists nowhere else.
 
-`git-outline` is a shell script that recurses over directories and checks status of
-the git repositories. It can be used to quickly ensure that all underlying
-repositories are clean and synced.
+`git comb` walks every repository under a directory and reports what a
+routine `git status` habit misses: commits on branches that were never
+pushed anywhere, uncommitted and untracked files, stashes, and work
+left on a detached HEAD — across all repositories at once.
 
-# Testing
-Enter `test` directory and run `make clean all run-fetch` to test the output of the
-command on a set of test repositories. You can also run tests for a specific
-group, for example `make clean loose run`. For more details please check
-[Makefile](https://github.com/jakubstefanski/git-outline/blob/master/test/Makefile).
+```
+$ git comb ~/Projects
+DU     /Users/js/Projects/website [main]
+S      /Users/js/Projects/paperwork [master]
+U      /Users/js/Projects/tools/scanner [main]
+combed 25 repositories in 412ms: 3 need attention
+```
+
+## Why another status tool
+
+Most multi-repository tools model "unpushed" as "ahead of upstream".
+A branch that was never pushed has no upstream, so it is ahead of
+nothing — and the work most at risk of living on a single disk is
+reported as clean. `git comb` asks a stricter question: which commits
+are reachable from HEAD or any local branch, but from no
+remote-tracking ref?
+
+```
+git rev-list --count HEAD --branches --not --remotes
+```
+
+That needs no upstream configuration and no network, and it holds for
+every ref storage format, packed refs included — because git itself
+answers the question.
+
+## Install
+
+```
+go install github.com/jkbstf/git-comb@latest
+```
+
+or download a binary from the releases page and put it on `PATH`. Git
+runs any executable named `git-comb` as `git comb`.
+
+Requires git 2.31 or newer on `PATH`.
+
+## Usage
+
+```
+git comb [OPTION]... [DIR]...
+```
+
+With no directories, the current directory is combed. Only
+repositories needing attention are printed; each line is a sign
+column, the repository path, and the checked-out branch.
+
+| Option | Effect |
+|---|---|
+| `-f, --fetch` | fetch all remotes first, so behind is current |
+| `-v, --verbose` | list the branches that hold unpushed commits |
+| `-a, --all` | print clean repositories too |
+| `-j, --jobs N` | probe N repositories in parallel |
+| `--hidden` | descend into hidden directories |
+| `--prune NAME` | skip directories named NAME (repeatable) |
+| `--color WHEN` | `auto` (default), `always`, or `never` |
+
+| Sign | Meaning |
+|---|---|
+| `D` | uncommitted changes, untracked files included |
+| `U` | commits that exist on no remote |
+| `A` | ahead of upstream |
+| `B` | behind upstream, as of the last fetch |
+| `S` | stash entries |
+| `E` | no commits yet |
+| `N` | no remote configured |
+| `R` | a remote could not be reached (with `--fetch`) |
+
+Exit status is 0 when everything is clean, 1 when something needs
+attention, and 2 on errors — so the command slots directly into
+scripts and shell prompts.
+
+## Design
+
+- Every probe is a documented, stable git interface — `status
+  --porcelain=v2`, `rev-list`, `for-each-ref` — executed by the `git`
+  on `PATH`. New repository formats keep working the day git ships
+  them, which is not true of tools that read `.git` themselves.
+- Read-only by construction: probes pass `--no-optional-locks`, so a
+  scan never writes to a repository or races an editor for the index.
+  The one exception is the opt-in `--fetch`.
+- Linked worktrees are recognized, and state they share with their
+  primary worktree — unpushed commits, stashes — is counted once.
+- Hidden directories and `node_modules` are skipped during discovery;
+  `--prune` extends the skip list, `--hidden` narrows it.
+- Repositories are probed in parallel; a repository that cannot be
+  probed becomes a reported finding, never an aborted scan.
+- No dependencies beyond the Go standard library.
+
+## License
+
+MIT — see [LICENSE](LICENSE).

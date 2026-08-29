@@ -1,0 +1,20 @@
+version: "2"
+
+linters:
+  default: standard
+  enable:
+    - misspell
+    - unconvert
+    - revive
+  settings:
+    errcheck:
+      # Write errors on the output streams are conventionally ignored
+      # in a CLI: there is nowhere better to report them.
+      exclude-functions:
+        - fmt.Fprintf
+        - fmt.Fprintln
+        - fmt.Fprint
+
+formatters:
+  enable:
+    - gofmt
