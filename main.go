@@ -33,12 +33,18 @@ uncommitted changes, commits unreachable from any remote, and stashes.
         --hidden      descend into hidden directories
         --prune NAME  skip directories named NAME (repeatable;
                       node_modules is always skipped)
+        --no-ignores  disregard comb.ignore and comb.ignoreBranch
         --color WHEN  color the output: auto, always, never
         --version     print the version and exit
     -h, --help        show this help
 
 Signs: D dirty  U unpushed  A ahead  B behind  S stash
        E empty  N no remote  R remote unreachable
+
+Defaults come from git config (comb.prune, comb.jobs, comb.hidden);
+comb.ignore and comb.ignoreBranch acknowledge repositories and
+branches per clone or globally. Flags win; the summary counts
+whatever was acknowledged.
 
 Exit status: 0 all clean, 1 findings, 2 errors.
 `
@@ -72,6 +78,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 	fs.Var(&opts.Prune, "prune", "")
 	fs.StringVar(&onlySigns, "only", "", "")
 	fs.StringVar(&onlySigns, "o", "", "")
+	fs.BoolVar(&opts.NoIgnores, "no-ignores", false, "")
 	fs.StringVar(&colorWhen, "color", "auto", "")
 	fs.BoolVar(&showVersion, "version", false, "")
 
@@ -109,6 +116,23 @@ func run(args []string, stdout, stderr io.Writer) int {
 		opts.Roots = []string{"."}
 	}
 
+	// Scan defaults come from git config; explicitly set flags win,
+	// and prune values merge rather than replace.
+	settings, err := comb.LoadSettings(".")
+	if err != nil {
+		fmt.Fprintf(stderr, "git-comb: config: %v\n", err)
+		return 2
+	}
+	visited := map[string]bool{}
+	fs.Visit(func(f *flag.Flag) { visited[f.Name] = true })
+	if settings.Jobs > 0 && !visited["j"] && !visited["jobs"] {
+		opts.Jobs = settings.Jobs
+	}
+	if settings.Hidden && !visited["hidden"] {
+		opts.Hidden = true
+	}
+	opts.Prune = append(comb.PruneList(settings.Prune), opts.Prune...)
+
 	start := time.Now()
 	reports, err := comb.Run(opts)
 	if err != nil {
@@ -121,7 +145,14 @@ func run(args []string, stdout, stderr io.Writer) int {
 		Color:   useColor,
 		Only:    opts.Only,
 	})
-	fmt.Fprintln(stderr, summary(len(reports), attention, failed, time.Since(start)))
+	ackedRepos, ackedBranches := 0, 0
+	for _, r := range reports {
+		if r.Ignored {
+			ackedRepos++
+		}
+		ackedBranches += r.AckedBranches
+	}
+	fmt.Fprintln(stderr, summary(len(reports), attention, failed, ackedRepos, ackedBranches, time.Since(start)))
 
 	switch {
 	case failed > 0:
@@ -194,8 +225,10 @@ func expandShortFlags(args []string) []string {
 }
 
 // summary is the one human line, written to stderr so stdout stays a
-// pure finding list.
-func summary(repos, attention, failed int, elapsed time.Duration) string {
+// pure finding list. Acknowledged repositories and branches are
+// disclosed here: suppression asked for is focus, but it must never
+// be silent.
+func summary(repos, attention, failed, ackedRepos, ackedBranches int, elapsed time.Duration) string {
 	noun := "repositories"
 	if repos == 1 {
 		noun = "repository"
@@ -209,7 +242,24 @@ func summary(repos, attention, failed int, elapsed time.Duration) string {
 	if failed > 0 {
 		s += fmt.Sprintf(", %d failed", failed)
 	}
+	if ackedRepos > 0 || ackedBranches > 0 {
+		var parts []string
+		if ackedRepos > 0 {
+			parts = append(parts, fmt.Sprintf("%d %s", ackedRepos, pluralize(ackedRepos, "repository", "repositories")))
+		}
+		if ackedBranches > 0 {
+			parts = append(parts, fmt.Sprintf("%d %s", ackedBranches, pluralize(ackedBranches, "branch", "branches")))
+		}
+		s += "; acknowledged: " + strings.Join(parts, ", ")
+	}
 	return s
+}
+
+func pluralize(n int, one, many string) string {
+	if n == 1 {
+		return one
+	}
+	return many
 }
 
 func fmtDuration(d time.Duration) string {

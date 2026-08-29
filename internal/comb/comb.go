@@ -32,6 +32,9 @@ type Options struct {
 	// Only restricts the scan to selected finding classes; the zero
 	// value selects all of them.
 	Only SignSet
+	// NoIgnores disregards comb.ignore and comb.ignoreBranch, showing
+	// the unfiltered truth.
+	NoIgnores bool
 }
 
 // PruneList collects the repeatable --prune flag values.

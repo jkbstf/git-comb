@@ -582,6 +582,83 @@ func TestRunOnlyDirtySkipsGrouping(t *testing.T) {
 	}
 }
 
+// TestProbeIgnoredRepo: comb.ignore acknowledges a whole clone — it
+// is not probed at all, and --no-ignores restores the full truth.
+func TestProbeIgnoredRepo(t *testing.T) {
+	requireGit(t)
+	setupGitEnv(t)
+	repo, _ := syncedRepo(t)
+	writeFile(t, filepath.Join(repo, "untracked.txt"), "new\n")
+	mustGit(t, repo, "config", "comb.ignore", "true")
+
+	r := probeAlone(repo, Options{})
+	if !r.Ignored {
+		t.Fatal("comb.ignore not honored")
+	}
+	if r.Dirty || r.Signs() != "" {
+		t.Errorf("ignored repository was probed anyway: %+v", r)
+	}
+
+	r = probeAlone(repo, Options{NoIgnores: true})
+	if r.Ignored {
+		t.Error("--no-ignores did not disable comb.ignore")
+	}
+	if !r.Dirty {
+		t.Error("--no-ignores probe missed the dirt")
+	}
+}
+
+// TestProbeIgnoreBranchGlobs: acknowledged branches disappear from
+// the count and the verbose detail together, are tallied for the
+// summary disclosure, and come back under --no-ignores.
+func TestProbeIgnoreBranchGlobs(t *testing.T) {
+	requireGit(t)
+	setupGitEnv(t)
+	repo, _ := syncedRepo(t)
+	mustGit(t, repo, "checkout", "--quiet", "-b", "backup/x")
+	commitFile(t, repo, "file.txt", "backup work\n", "deliberate snapshot")
+	mustGit(t, repo, "checkout", "--quiet", "-b", "keep/y", "master")
+	commitFile(t, repo, "file.txt", "real work\n", "needs pushing")
+	mustGit(t, repo, "checkout", "--quiet", "master")
+	mustGit(t, repo, "config", "--add", "comb.ignoreBranch", "backup/*")
+
+	r := probeAlone(repo, Options{Verbose: true})
+	if r.Err != nil {
+		t.Fatalf("probe: %v", r.Err)
+	}
+	if r.Unpushed != 1 {
+		t.Errorf("Unpushed = %d, want 1 (backup/x acknowledged)", r.Unpushed)
+	}
+	if r.AckedBranches != 1 {
+		t.Errorf("AckedBranches = %d, want 1", r.AckedBranches)
+	}
+	if len(r.UnpushedBranches) != 1 || r.UnpushedBranches[0].Name != "keep/y" {
+		t.Errorf("UnpushedBranches = %+v, want only keep/y", r.UnpushedBranches)
+	}
+
+	r = probeAlone(repo, Options{Verbose: true, NoIgnores: true})
+	if r.Unpushed != 2 || r.AckedBranches != 0 {
+		t.Errorf("--no-ignores: Unpushed, AckedBranches = %d, %d; want 2, 0", r.Unpushed, r.AckedBranches)
+	}
+}
+
+// TestProbeIgnoreBranchGlobalConfig: a glob in the global config
+// acknowledges the pattern across every repository.
+func TestProbeIgnoreBranchGlobalConfig(t *testing.T) {
+	requireGit(t)
+	setupGitEnv(t)
+	repo, _ := syncedRepo(t)
+	mustGit(t, repo, "checkout", "--quiet", "-b", "backup/x")
+	commitFile(t, repo, "file.txt", "backup work\n", "deliberate snapshot")
+	mustGit(t, repo, "checkout", "--quiet", "master")
+	mustGit(t, repo, "config", "--global", "--add", "comb.ignoreBranch", "backup/*")
+
+	r := probeAlone(repo, Options{})
+	if r.Unpushed != 0 || r.AckedBranches != 1 {
+		t.Errorf("global glob not applied: Unpushed, AckedBranches = %d, %d", r.Unpushed, r.AckedBranches)
+	}
+}
+
 func TestScanFindsNestedSkipsNoise(t *testing.T) {
 	requireGit(t)
 	setupGitEnv(t)

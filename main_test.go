@@ -3,12 +3,40 @@ package main
 import (
 	"bytes"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
 	"time"
 )
+
+// isolateConfig keeps run() tests away from the developer's real git
+// configuration (comb.* settings would change behavior) and skips
+// when git is absent, since loading settings needs it.
+func isolateConfig(t *testing.T) string {
+	t.Helper()
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git is not on PATH")
+	}
+	cfg := filepath.Join(t.TempDir(), "gitconfig")
+	if err := os.WriteFile(cfg, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("GIT_CONFIG_GLOBAL", cfg)
+	t.Setenv("GIT_CONFIG_NOSYSTEM", "1")
+	return cfg
+}
+
+func gitInit(t *testing.T, dir string) {
+	t.Helper()
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if out, err := exec.Command("git", "-C", dir, "init", "--quiet").CombinedOutput(); err != nil {
+		t.Fatalf("git init: %v: %s", err, out)
+	}
+}
 
 func TestRunVersionGoesToStdout(t *testing.T) {
 	var stdout, stderr bytes.Buffer
@@ -56,6 +84,7 @@ func TestRunRejectsBadOnly(t *testing.T) {
 }
 
 func TestRunOnlyFlagAccepted(t *testing.T) {
+	isolateConfig(t)
 	var stdout, stderr bytes.Buffer
 	if code := run([]string{"--only", "dus", t.TempDir()}, &stdout, &stderr); code != 0 {
 		t.Errorf("exit = %d, want 0: %s", code, stderr.String())
@@ -76,6 +105,7 @@ func TestRunRejectsBadColor(t *testing.T) {
 }
 
 func TestRunMissingRootExitsTwo(t *testing.T) {
+	isolateConfig(t)
 	var stdout, stderr bytes.Buffer
 	code := run([]string{filepath.Join(t.TempDir(), "missing")}, &stdout, &stderr)
 	if code != 2 {
@@ -84,6 +114,7 @@ func TestRunMissingRootExitsTwo(t *testing.T) {
 }
 
 func TestRunFileRootExitsTwo(t *testing.T) {
+	isolateConfig(t)
 	path := filepath.Join(t.TempDir(), "afile")
 	if err := os.WriteFile(path, []byte("x\n"), 0o644); err != nil {
 		t.Fatal(err)
@@ -95,6 +126,7 @@ func TestRunFileRootExitsTwo(t *testing.T) {
 }
 
 func TestRunEmptyTreeExitsZero(t *testing.T) {
+	isolateConfig(t)
 	var stdout, stderr bytes.Buffer
 	if code := run([]string{t.TempDir()}, &stdout, &stderr); code != 0 {
 		t.Errorf("exit = %d, want 0", code)
@@ -108,6 +140,7 @@ func TestRunEmptyTreeExitsZero(t *testing.T) {
 }
 
 func TestRunAcceptsTrailingFlags(t *testing.T) {
+	isolateConfig(t)
 	var stdout, stderr bytes.Buffer
 	if code := run([]string{t.TempDir(), "-a"}, &stdout, &stderr); code != 0 {
 		t.Errorf("exit = %d, want 0 (trailing flags must parse): %s", code, stderr.String())
@@ -115,9 +148,38 @@ func TestRunAcceptsTrailingFlags(t *testing.T) {
 }
 
 func TestRunDashDashStopsFlagParsing(t *testing.T) {
+	isolateConfig(t)
 	var stdout, stderr bytes.Buffer
 	if code := run([]string{"--", t.TempDir()}, &stdout, &stderr); code != 0 {
 		t.Errorf("exit = %d, want 0: %s", code, stderr.String())
+	}
+}
+
+// TestRunReadsPruneFromConfig: comb.prune in git config behaves like
+// a standing --prune flag.
+func TestRunReadsPruneFromConfig(t *testing.T) {
+	cfg := isolateConfig(t)
+	base := t.TempDir()
+	gitInit(t, filepath.Join(base, "skipme", "repo"))
+
+	var stdout, stderr bytes.Buffer
+	if code := run([]string{base}, &stdout, &stderr); code == 2 {
+		t.Fatalf("baseline run failed: %s", stderr.String())
+	}
+	if !strings.Contains(stderr.String(), "combed 1 repository") {
+		t.Fatalf("baseline should find the repo: %q", stderr.String())
+	}
+
+	if err := os.WriteFile(cfg, []byte("[comb]\n\tprune = skipme\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	stdout.Reset()
+	stderr.Reset()
+	if code := run([]string{base}, &stdout, &stderr); code != 0 {
+		t.Errorf("exit = %d, want 0: %s", code, stderr.String())
+	}
+	if !strings.Contains(stderr.String(), "combed 0 repositories") {
+		t.Errorf("comb.prune not applied: %q", stderr.String())
 	}
 }
 
@@ -150,17 +212,21 @@ func TestExpandShortFlags(t *testing.T) {
 
 func TestSummary(t *testing.T) {
 	tests := []struct {
-		repos, attention, failed int
-		want                     string
+		repos, attention, failed  int
+		ackedRepos, ackedBranches int
+		want                      string
 	}{
-		{0, 0, 0, "combed 0 repositories in 5ms: 0 need attention"},
-		{1, 1, 0, "combed 1 repository in 5ms: 1 needs attention"},
-		{3, 2, 0, "combed 3 repositories in 5ms: 2 need attention"},
-		{3, 1, 2, "combed 3 repositories in 5ms: 1 needs attention, 2 failed"},
+		{0, 0, 0, 0, 0, "combed 0 repositories in 5ms: 0 need attention"},
+		{1, 1, 0, 0, 0, "combed 1 repository in 5ms: 1 needs attention"},
+		{3, 2, 0, 0, 0, "combed 3 repositories in 5ms: 2 need attention"},
+		{3, 1, 2, 0, 0, "combed 3 repositories in 5ms: 1 needs attention, 2 failed"},
+		{5, 1, 0, 1, 13, "combed 5 repositories in 5ms: 1 needs attention; acknowledged: 1 repository, 13 branches"},
+		{5, 0, 0, 2, 0, "combed 5 repositories in 5ms: 0 need attention; acknowledged: 2 repositories"},
+		{5, 0, 0, 0, 1, "combed 5 repositories in 5ms: 0 need attention; acknowledged: 1 branch"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.want, func(t *testing.T) {
-			got := summary(tt.repos, tt.attention, tt.failed, 5*time.Millisecond)
+			got := summary(tt.repos, tt.attention, tt.failed, tt.ackedRepos, tt.ackedBranches, 5*time.Millisecond)
 			if got != tt.want {
 				t.Errorf("summary = %q, want %q", got, tt.want)
 			}

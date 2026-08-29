@@ -97,6 +97,7 @@ column, the repository path, and the checked-out branch.
 | `-j, --jobs N` | probe N repositories in parallel |
 | `--hidden` | descend into hidden directories |
 | `--prune NAME` | skip directories named NAME (repeatable) |
+| `--no-ignores` | disregard `comb.ignore` and `comb.ignoreBranch` |
 | `--color WHEN` | `auto` (default), `always`, or `never` |
 
 | Sign | Meaning |
@@ -119,6 +120,37 @@ follows what you asked for. Probe failures are always reported.
 Exit status is 0 when everything is clean, 1 when something needs
 attention, and 2 on errors — so the command slots directly into
 scripts and shell prompts.
+
+## Configuration
+
+Settings live in git config — no extra file, and they travel with
+your dotfiles. Flags override them; `--prune` adds to `comb.prune`
+rather than replacing it.
+
+| Key | Meaning |
+|---|---|
+| `comb.prune` (multi-valued) | directory names to skip, like `--prune` |
+| `comb.jobs` | default probe parallelism |
+| `comb.hidden` | descend into hidden directories by default |
+| `comb.ignore` | acknowledge this repository entirely |
+| `comb.ignoreBranch` (multi-valued) | globs for branches whose unpushed commits are deliberate |
+
+```
+git config --global --add comb.prune _deps
+git config comb.ignore true
+git config --add comb.ignoreBranch 'backup/*'
+git config --global --add comb.ignoreBranch 'wip/*'
+```
+
+`comb.ignore` and `comb.ignoreBranch` are read per repository with
+git's usual precedence, so a global value applies everywhere and a
+local one to a single clone. Globs match the branch name, and `*`
+does not cross `/`: `backup/*` matches `backup/a` but not
+`backup/a/b`.
+
+Acknowledged findings are never silently gone: the summary line
+counts them — `; acknowledged: 1 repository, 13 branches` — and
+`--no-ignores` shows the unfiltered truth.
 
 ## Design
 

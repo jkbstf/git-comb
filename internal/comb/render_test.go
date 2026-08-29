@@ -14,6 +14,7 @@ func TestRender(t *testing.T) {
 		{Path: "c/unpushed", Branch: "master", Unpushed: 2,
 			UnpushedBranches: []BranchCount{{Name: "backup/x", Commits: 2}}},
 		{Path: "d/broken", Err: errors.New("git status: boom")},
+		{Path: "z/acked", Branch: "master", Ignored: true},
 	}
 
 	t.Run("default hides clean, counts attention and failures", func(t *testing.T) {
@@ -25,6 +26,9 @@ func TestRender(t *testing.T) {
 		out := buf.String()
 		if strings.Contains(out, "a/clean") {
 			t.Errorf("clean repository rendered without All:\n%s", out)
+		}
+		if strings.Contains(out, "z/acked") {
+			t.Errorf("ignored repository rendered:\n%s", out)
 		}
 		for _, want := range []string{
 			"D      b/dirty [main]\n",
@@ -51,6 +55,9 @@ func TestRender(t *testing.T) {
 			if !strings.Contains(out, want) {
 				t.Errorf("output missing %q:\n%s", want, out)
 			}
+		}
+		if strings.Contains(out, "z/acked") {
+			t.Errorf("ignored repository rendered even with All:\n%s", out)
 		}
 	})
 

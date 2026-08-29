@@ -1,6 +1,8 @@
 package comb
 
 import (
+	"fmt"
+	"path"
 	"strings"
 )
 
@@ -24,6 +26,20 @@ func probe(repo string, opts Options, carrier, linked bool) Report {
 	needStash := opts.Only.Has('S')
 	needEmpty := opts.Only.Has('E')
 	needRemotes := needUnpushed || opts.Only.Has('N')
+
+	var ackGlobs []string
+	if !opts.NoIgnores {
+		ignored, globs, err := repoIgnores(repo)
+		if err != nil {
+			r.Err = err
+			return r
+		}
+		if ignored {
+			r.Ignored = true
+			return r
+		}
+		ackGlobs = globs
+	}
 
 	if opts.Fetch && carrier {
 		if _, err := gitOutEnv(repo, []string{"GIT_TERMINAL_PROMPT=0"}, "fetch", "--all", "--quiet"); err != nil {
@@ -61,16 +77,16 @@ func probe(repo string, opts Options, carrier, linked bool) Report {
 
 	// An unborn HEAD is not the same as an empty repository: after an
 	// orphan checkout, other branches can still hold unpushed work.
-	hasBranches := false
+	var branches []string
 	if (st.Unborn && (needEmpty || needUnpushed)) || (carrier && needUnpushed && !r.NoRemote) {
-		hasBranches, err = repoHasBranches(repo)
+		branches, err = listBranches(repo)
 		if err != nil {
 			r.Err = err
 			return r
 		}
 	}
 	if needEmpty {
-		r.Empty = st.Unborn && !hasBranches
+		r.Empty = st.Unborn && len(branches) == 0
 	}
 
 	// Unpushed means reachable from local refs but from no
@@ -80,14 +96,32 @@ func probe(repo string, opts Options, carrier, linked bool) Report {
 	// counts branch-reachable commits once for the whole group; each
 	// worktree adds its own detached-HEAD commits, restricted to
 	// those on no local branch so the two never overlap.
+	var kept []string
 	if needUnpushed && !r.NoRemote {
-		if carrier && hasBranches {
-			n, err := gitCount(repo, "rev-list", "--count", "--branches", "--not", "--remotes")
-			if err != nil {
-				r.Err = err
-				return r
+		if carrier && len(branches) > 0 {
+			kept = branches
+			if len(ackGlobs) > 0 {
+				var acked []string
+				kept, acked, err = partitionBranches(branches, ackGlobs)
+				if err != nil {
+					r.Err = err
+					return r
+				}
+				r.AckedBranches = len(acked)
 			}
-			r.Unpushed += n
+			if len(kept) > 0 {
+				args := []string{"rev-list", "--count"}
+				for _, name := range kept {
+					args = append(args, "refs/heads/"+name)
+				}
+				args = append(args, "--not", "--remotes")
+				n, err := gitCount(repo, args...)
+				if err != nil {
+					r.Err = err
+					return r
+				}
+				r.Unpushed += n
+			}
 		}
 		if st.Detached {
 			n, err := gitCount(repo, "rev-list", "--count", "HEAD", "--not", "--remotes", "--branches")
@@ -108,7 +142,7 @@ func probe(repo string, opts Options, carrier, linked bool) Report {
 	}
 
 	if opts.Verbose && r.Unpushed > 0 {
-		r.UnpushedBranches = unpushedBranches(repo, st.Detached, carrier)
+		r.UnpushedBranches = unpushedBranches(repo, st.Detached, kept)
 	}
 	return r
 }
@@ -125,31 +159,51 @@ func describeBranch(st worktreeStatus) string {
 	return "detached"
 }
 
-// repoHasBranches reports whether any local branch exists.
-func repoHasBranches(repo string) (bool, error) {
-	out, err := gitOut(repo, "for-each-ref", "--count=1", "--format=%(refname)", "refs/heads")
+// listBranches names every local branch.
+func listBranches(repo string) ([]string, error) {
+	out, err := gitOut(repo, "for-each-ref", "refs/heads", "--format=%(refname:short)")
 	if err != nil {
-		return false, err
+		return nil, err
 	}
-	return strings.TrimSpace(out) != "", nil
+	return strings.Fields(out), nil
 }
 
-// unpushedBranches lists where the unpushed commits sit. The carrier
-// walks every local branch — one rev-list per branch, which is why
-// verbose mode costs more on branch-heavy repositories — and any
-// worktree adds its own detached HEAD as "(detached)".
-func unpushedBranches(repo string, detached, carrier bool) []BranchCount {
-	var res []BranchCount
-	if carrier {
-		out, err := gitOut(repo, "for-each-ref", "refs/heads", "--format=%(refname:short)")
-		if err != nil {
-			return nil
-		}
-		for _, name := range strings.Fields(out) {
-			n, err := gitCount(repo, "rev-list", "--count", name, "--not", "--remotes")
-			if err == nil && n > 0 {
-				res = append(res, BranchCount{Name: name, Commits: n})
+// partitionBranches splits branch names into kept and acknowledged
+// against comb.ignoreBranch globs. Patterns match the branch name;
+// as in path.Match, `*` does not cross `/`.
+func partitionBranches(names, globs []string) (kept, acked []string, err error) {
+	for _, name := range names {
+		matched := false
+		for _, glob := range globs {
+			ok, err := path.Match(glob, name)
+			if err != nil {
+				return nil, nil, fmt.Errorf("comb.ignoreBranch: bad pattern %q", glob)
 			}
+			if ok {
+				matched = true
+				break
+			}
+		}
+		if matched {
+			acked = append(acked, name)
+		} else {
+			kept = append(kept, name)
+		}
+	}
+	return kept, acked, nil
+}
+
+// unpushedBranches lists where the unpushed commits sit: one
+// rev-list per kept branch — which is why verbose mode costs more on
+// branch-heavy repositories — plus the worktree's own detached HEAD
+// as "(detached)". The kept list is the same one the count used, so
+// the detail always agrees with the total.
+func unpushedBranches(repo string, detached bool, kept []string) []BranchCount {
+	var res []BranchCount
+	for _, name := range kept {
+		n, err := gitCount(repo, "rev-list", "--count", "refs/heads/"+name, "--not", "--remotes")
+		if err == nil && n > 0 {
+			res = append(res, BranchCount{Name: name, Commits: n})
 		}
 	}
 	if detached {

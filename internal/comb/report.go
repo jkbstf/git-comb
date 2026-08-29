@@ -30,6 +30,12 @@ type Report struct {
 	// Linked marks a linked worktree, one sharing its ref store with
 	// a primary worktree elsewhere.
 	Linked bool
+	// Ignored marks a repository acknowledged by comb.ignore; it was
+	// not probed and is disclosed only through the summary count.
+	Ignored bool
+	// AckedBranches counts branch names whose unpushed commits were
+	// acknowledged by comb.ignoreBranch globs on this probe.
+	AckedBranches int
 	// UnpushedBranches carries per-branch unpushed counts when the
 	// probe ran verbose.
 	UnpushedBranches []BranchCount

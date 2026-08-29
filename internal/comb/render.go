@@ -36,6 +36,9 @@ func Render(w io.Writer, reports []Report, opts RenderOptions) (attention, faile
 		red, green, reset = ansiRed, ansiGreen, ansiReset
 	}
 	for _, r := range reports {
+		if r.Ignored {
+			continue
+		}
 		if r.Err != nil {
 			failed++
 			fmt.Fprintf(w, "%s%-*s%s %s: %v\n", red, signColumn, "!", reset, r.Path, r.Err)
