@@ -13,6 +13,9 @@ type RenderOptions struct {
 	Verbose bool
 	// Color paints signs red and branches green.
 	Color bool
+	// Only restricts rendering and attention counting to selected
+	// finding classes; probe failures are always rendered.
+	Only SignSet
 }
 
 // signColumn fits the widest realistic combination: D U A B S R.
@@ -38,7 +41,7 @@ func Render(w io.Writer, reports []Report, opts RenderOptions) (attention, faile
 			fmt.Fprintf(w, "%s%-*s%s %s: %v\n", red, signColumn, "!", reset, r.Path, r.Err)
 			continue
 		}
-		signs := r.Signs()
+		signs := opts.Only.Filter(r.Signs())
 		if signs == "" {
 			if opts.All {
 				fmt.Fprintf(w, "%-*s %s [%s%s%s]\n", signColumn, "", r.Path, green, r.Branch, reset)

@@ -28,6 +28,7 @@ uncommitted changes, commits unreachable from any remote, and stashes.
     -f, --fetch       fetch all remotes first, so behind is current
     -v, --verbose     list the branches that hold unpushed commits
     -a, --all         print clean repositories too
+        --only SIGNS  look only for these sign classes (e.g. DUS)
     -j, --jobs N      probe N repositories in parallel (default %d)
         --hidden      descend into hidden directories
         --prune NAME  skip directories named NAME (repeatable;
@@ -52,6 +53,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 	var (
 		opts        comb.Options
 		colorWhen   string
+		onlySigns   string
 		showVersion bool
 	)
 
@@ -68,6 +70,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 	fs.IntVar(&opts.Jobs, "j", comb.DefaultJobs(), "")
 	fs.BoolVar(&opts.Hidden, "hidden", false, "")
 	fs.Var(&opts.Prune, "prune", "")
+	fs.StringVar(&onlySigns, "only", "", "")
 	fs.StringVar(&colorWhen, "color", "auto", "")
 	fs.BoolVar(&showVersion, "version", false, "")
 
@@ -92,6 +95,14 @@ func run(args []string, stdout, stderr io.Writer) int {
 		return 2
 	}
 
+	if onlySigns != "" {
+		opts.Only, err = comb.ParseSignSet(onlySigns)
+		if err != nil {
+			fmt.Fprintf(stderr, "git-comb: --only: %v\n", err)
+			return 2
+		}
+	}
+
 	opts.Roots = roots
 	if len(opts.Roots) == 0 {
 		opts.Roots = []string{"."}
@@ -107,6 +118,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 		All:     opts.All,
 		Verbose: opts.Verbose,
 		Color:   useColor,
+		Only:    opts.Only,
 	})
 	fmt.Fprintln(stderr, summary(len(reports), attention, failed, time.Since(start)))
 

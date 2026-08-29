@@ -70,6 +70,31 @@ func TestRender(t *testing.T) {
 			t.Errorf("plain output contains ANSI escapes:\n%q", buf.String())
 		}
 	})
+
+	t.Run("only filters signs, rows, and attention", func(t *testing.T) {
+		mixed := append([]Report{}, reports...)
+		mixed = append(mixed, Report{Path: "e/both", Branch: "master", Dirty: true, Unpushed: 3})
+
+		only, err := ParseSignSet("DS")
+		if err != nil {
+			t.Fatal(err)
+		}
+		var buf bytes.Buffer
+		attention, failed := Render(&buf, mixed, RenderOptions{Only: only})
+		if attention != 2 || failed != 1 {
+			t.Errorf("attention, failed = %d, %d; want 2, 1", attention, failed)
+		}
+		out := buf.String()
+		if strings.Contains(out, "c/unpushed") {
+			t.Errorf("pure-U row survived --only DS:\n%s", out)
+		}
+		if !strings.Contains(out, "D      e/both [master]\n") {
+			t.Errorf("mixed row not reduced to its requested signs:\n%s", out)
+		}
+		if !strings.Contains(out, "d/broken") {
+			t.Errorf("probe failure hidden by --only:\n%s", out)
+		}
+	})
 }
 
 func TestDefaultJobsBounds(t *testing.T) {

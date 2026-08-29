@@ -45,6 +45,23 @@ func TestRunRejectsUnknownFlag(t *testing.T) {
 	}
 }
 
+func TestRunRejectsBadOnly(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	if code := run([]string{"--only", "DX"}, &stdout, &stderr); code != 2 {
+		t.Errorf("exit = %d, want 2", code)
+	}
+	if !strings.Contains(stderr.String(), "unknown sign") {
+		t.Errorf("stderr = %q", stderr.String())
+	}
+}
+
+func TestRunOnlyFlagAccepted(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	if code := run([]string{"--only", "dus", t.TempDir()}, &stdout, &stderr); code != 0 {
+		t.Errorf("exit = %d, want 0: %s", code, stderr.String())
+	}
+}
+
 func TestRunRejectsBadColor(t *testing.T) {
 	var stdout, stderr bytes.Buffer
 	if code := run([]string{"--color", "sometimes"}, &stdout, &stderr); code != 2 {

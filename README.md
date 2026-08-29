@@ -58,6 +58,7 @@ column, the repository path, and the checked-out branch.
 | `-f, --fetch` | fetch all remotes first, so behind is current |
 | `-v, --verbose` | list the branches that hold unpushed commits |
 | `-a, --all` | print clean repositories too |
+| `--only SIGNS` | look only for these sign classes, e.g. `--only DUS` |
 | `-j, --jobs N` | probe N repositories in parallel |
 | `--hidden` | descend into hidden directories |
 | `--prune NAME` | skip directories named NAME (repeatable) |
@@ -73,6 +74,12 @@ column, the repository path, and the checked-out branch.
 | `E` | no commits yet |
 | `N` | no remote configured |
 | `R` | a remote could not be reached (with `--fetch`) |
+
+The signs divide into loss risk — `D`, `U`, `S`, `E`, `N`, work that
+exists nowhere else — and sync hygiene (`A`, `B`). `--only DUS` runs
+a pure loss audit: classes you did not ask for are neither probed nor
+printed, which also makes a narrow scan faster, and the exit status
+follows what you asked for. Probe failures are always reported.
 
 Exit status is 0 when everything is clean, 1 when something needs
 attention, and 2 on errors — so the command slots directly into

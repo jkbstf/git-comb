@@ -504,6 +504,84 @@ func TestRunDetachedWorktreeCommit(t *testing.T) {
 	}
 }
 
+// TestProbeOnlyGatesProbes: classes outside --only are not computed
+// at all — the unpushed count stays untouched under --only D, and
+// under --only U the untracked-file walk is skipped entirely (-uno).
+func TestProbeOnlyGatesProbes(t *testing.T) {
+	requireGit(t)
+	setupGitEnv(t)
+	repo, _ := syncedRepo(t)
+	mustGit(t, repo, "checkout", "--quiet", "-b", "backup/x")
+	commitFile(t, repo, "file.txt", "unpushed\n", "kept local")
+	mustGit(t, repo, "checkout", "--quiet", "master")
+	writeFile(t, filepath.Join(repo, "untracked.txt"), "new\n")
+	writeFile(t, filepath.Join(repo, "file.txt"), "modified\n")
+	mustGit(t, repo, "stash", "--quiet")
+
+	onlyD, err := ParseSignSet("D")
+	if err != nil {
+		t.Fatal(err)
+	}
+	r := probe(repo, Options{Only: onlyD}, true, false)
+	if r.Err != nil {
+		t.Fatalf("probe: %v", r.Err)
+	}
+	if !r.Dirty {
+		t.Error("Dirty = false with an untracked file under --only D")
+	}
+	if r.Unpushed != 0 || r.Stashes != 0 || r.NoRemote {
+		t.Errorf("unrequested classes computed under --only D: %+v", r)
+	}
+
+	onlyU, err := ParseSignSet("U")
+	if err != nil {
+		t.Fatal(err)
+	}
+	r = probe(repo, Options{Only: onlyU}, true, false)
+	if r.Err != nil {
+		t.Fatalf("probe: %v", r.Err)
+	}
+	if r.Unpushed != 1 {
+		t.Errorf("Unpushed = %d under --only U, want 1", r.Unpushed)
+	}
+	if r.Dirty {
+		t.Error("untracked file registered although --only U runs status with -uno")
+	}
+	if r.Stashes != 0 {
+		t.Error("stash counted under --only U")
+	}
+}
+
+// TestRunOnlyDirtySkipsGrouping: with neither U nor S requested and
+// no fetch, worktree grouping is unnecessary and skipped; tree state
+// still reports correctly.
+func TestRunOnlyDirtySkipsGrouping(t *testing.T) {
+	requireGit(t)
+	setupGitEnv(t)
+	repo, _ := syncedRepo(t)
+	wt := filepath.Join(tempDir(t), "wt")
+	mustGit(t, repo, "worktree", "add", "--quiet", "-b", "wt-branch", wt)
+	commitFile(t, wt, "file.txt", "worktree work\n", "never pushed")
+	writeFile(t, filepath.Join(wt, "scratch.txt"), "dirt\n")
+
+	onlyD, err := ParseSignSet("D")
+	if err != nil {
+		t.Fatal(err)
+	}
+	reports, err := Run(Options{Roots: []string{repo, wt}, Jobs: 2, Only: onlyD})
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	for _, r := range reports {
+		if r.Unpushed != 0 {
+			t.Errorf("Unpushed computed under --only D: %+v", r)
+		}
+		if r.Path == wt && !r.Dirty {
+			t.Error("dirty worktree missed under --only D")
+		}
+	}
+}
+
 func TestScanFindsNestedSkipsNoise(t *testing.T) {
 	requireGit(t)
 	setupGitEnv(t)

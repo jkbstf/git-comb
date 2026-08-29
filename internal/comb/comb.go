@@ -29,6 +29,9 @@ type Options struct {
 	Jobs int
 	// Prune lists directory names never descended into.
 	Prune PruneList
+	// Only restricts the scan to selected finding classes; the zero
+	// value selects all of them.
+	Only SignSet
 }
 
 // PruneList collects the repeatable --prune flag values.
@@ -71,13 +74,24 @@ func Run(opts Options) ([]Report, error) {
 
 // probeAll elects one carrier per repository group, then probes
 // everything concurrently. Each goroutine writes only its own slot,
-// so no aggregation lock is needed.
+// so no aggregation lock is needed. Grouping exists for the sake of
+// shared-state counting and once-per-repository fetching, so when the
+// run needs none of those every repository simply stands alone.
 func probeAll(repos []string, opts Options) []Report {
 	jobs := opts.Jobs
 	if jobs < 1 {
 		jobs = 1
 	}
-	carriers, linked := electCarriers(repos, jobs)
+	var carriers, linked []bool
+	if opts.Fetch || opts.Only.Has('U') || opts.Only.Has('S') {
+		carriers, linked = electCarriers(repos, jobs)
+	} else {
+		carriers = make([]bool, len(repos))
+		linked = make([]bool, len(repos))
+		for i := range carriers {
+			carriers[i] = true
+		}
+	}
 	sem := make(chan struct{}, jobs)
 	reports := make([]Report, len(repos))
 	var wg sync.WaitGroup
