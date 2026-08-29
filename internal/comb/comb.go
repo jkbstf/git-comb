@@ -6,8 +6,9 @@
 package comb
 
 import (
+	"path/filepath"
 	"runtime"
-	"sort"
+	"slices"
 	"strings"
 	"sync"
 )
@@ -64,17 +65,19 @@ func Run(opts Options) ([]Report, error) {
 		return nil, err
 	}
 	reports := probeAll(repos, opts)
-	sort.Slice(reports, func(i, j int) bool { return reports[i].Path < reports[j].Path })
+	slices.SortFunc(reports, func(a, b Report) int { return strings.Compare(a.Path, b.Path) })
 	return reports, nil
 }
 
-// probeAll probes repositories concurrently. Each goroutine writes
-// only its own slot, so no aggregation lock is needed.
+// probeAll elects one carrier per repository group, then probes
+// everything concurrently. Each goroutine writes only its own slot,
+// so no aggregation lock is needed.
 func probeAll(repos []string, opts Options) []Report {
 	jobs := opts.Jobs
 	if jobs < 1 {
 		jobs = 1
 	}
+	carriers, linked := electCarriers(repos, jobs)
 	sem := make(chan struct{}, jobs)
 	reports := make([]Report, len(repos))
 	var wg sync.WaitGroup
@@ -84,9 +87,80 @@ func probeAll(repos []string, opts Options) []Report {
 			defer wg.Done()
 			sem <- struct{}{}
 			defer func() { <-sem }()
-			reports[i] = probe(repo, opts)
+			reports[i] = probe(repo, opts, carriers[i], linked[i])
 		}(i, repo)
 	}
 	wg.Wait()
 	return reports
+}
+
+// electCarriers groups the discovered worktrees by the common git dir
+// they share and marks one carrier per group to count shared state:
+// the primary worktree when it was discovered, otherwise the
+// first-sorted linked worktree — a linked worktree scanned without
+// its primary must still report the repository's unpushed work. A
+// worktree that cannot be classified forms its own group so its probe
+// surfaces the error.
+func electCarriers(repos []string, jobs int) (carriers, linked []bool) {
+	type location struct {
+		gitDir, commonDir string
+		ok                bool
+	}
+	locs := make([]location, len(repos))
+
+	sem := make(chan struct{}, jobs)
+	var wg sync.WaitGroup
+	for i, repo := range repos {
+		wg.Add(1)
+		go func(i int, repo string) {
+			defer wg.Done()
+			sem <- struct{}{}
+			defer func() { <-sem }()
+			out, err := gitOut(repo, "rev-parse", "--path-format=absolute", "--git-dir", "--git-common-dir")
+			if err != nil {
+				return
+			}
+			lines := strings.Split(strings.TrimSpace(out), "\n")
+			if len(lines) != 2 {
+				return
+			}
+			locs[i] = location{
+				gitDir:    filepath.Clean(lines[0]),
+				commonDir: filepath.Clean(lines[1]),
+				ok:        true,
+			}
+		}(i, repo)
+	}
+	wg.Wait()
+
+	carriers = make([]bool, len(repos))
+	linked = make([]bool, len(repos))
+	groups := map[string][]int{}
+	for i, loc := range locs {
+		if !loc.ok {
+			carriers[i] = true
+			continue
+		}
+		linked[i] = loc.gitDir != loc.commonDir
+		groups[loc.commonDir] = append(groups[loc.commonDir], i)
+	}
+	for _, idxs := range groups {
+		carrier := -1
+		for _, i := range idxs {
+			if !linked[i] {
+				carrier = i
+				break
+			}
+		}
+		if carrier < 0 {
+			carrier = idxs[0]
+			for _, i := range idxs[1:] {
+				if repos[i] < repos[carrier] {
+					carrier = i
+				}
+			}
+		}
+		carriers[carrier] = true
+	}
+	return carriers, linked
 }

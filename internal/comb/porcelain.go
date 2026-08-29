@@ -8,20 +8,22 @@ import (
 // worktreeStatus is the parsed result of
 // git status --porcelain=v2 --branch -uall.
 type worktreeStatus struct {
-	Branch      string
-	OID         string
-	Detached    bool
-	Empty       bool
-	HasUpstream bool
-	Ahead       int
-	Behind      int
-	Dirty       bool
+	Branch   string
+	OID      string
+	Detached bool
+	// Unborn means HEAD points at a branch with no commit yet — a
+	// fresh repository, or an orphan checkout in an old one.
+	Unborn bool
+	Ahead  int
+	Behind int
+	Dirty  bool
 }
 
 // parseStatus reads porcelain v2 output, documented as stable in
 // git-status(1). Header lines start with "#"; entry lines with "1"
 // (changed), "2" (renamed), "u" (unmerged), or "?" (untracked), all
-// of which mean dirty. Ignored entries ("!") do not.
+// of which mean dirty. Ignored entries ("!") do not. The branch.ab
+// header is present exactly when an upstream is configured.
 func parseStatus(out string) worktreeStatus {
 	var st worktreeStatus
 	for _, line := range strings.Split(out, "\n") {
@@ -30,7 +32,7 @@ func parseStatus(out string) worktreeStatus {
 		case strings.HasPrefix(line, "# branch.oid "):
 			v := strings.TrimPrefix(line, "# branch.oid ")
 			if v == "(initial)" {
-				st.Empty = true
+				st.Unborn = true
 			} else {
 				st.OID = v
 			}
@@ -42,9 +44,6 @@ func parseStatus(out string) worktreeStatus {
 				st.Branch = v
 			}
 		case strings.HasPrefix(line, "# branch.ab "):
-			// The line is present exactly when an upstream is set,
-			// even at +0 -0.
-			st.HasUpstream = true
 			st.Ahead, st.Behind = parseAheadBehind(strings.TrimPrefix(line, "# branch.ab "))
 		case strings.HasPrefix(line, "#"):
 		case strings.HasPrefix(line, "!"):

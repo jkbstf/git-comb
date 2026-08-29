@@ -9,25 +9,26 @@ type Report struct {
 	Branch string
 	// Dirty means uncommitted changes, untracked files included.
 	Dirty bool
-	// Empty means the repository has no commits yet.
+	// Empty means the repository has no commits on any branch.
 	Empty bool
 	// Ahead means the current branch is ahead of its upstream.
 	Ahead bool
 	// Behind means the current branch is behind its upstream, as of
 	// the last fetch.
 	Behind bool
-	// Unpushed counts commits reachable from HEAD or any local branch
-	// but from no remote-tracking ref.
+	// Unpushed counts commits reachable from local refs but from no
+	// remote-tracking ref. The carrier of a worktree group counts the
+	// branches once; every worktree adds its own detached-HEAD
+	// commits.
 	Unpushed int
-	// Stashes counts stash entries.
+	// Stashes counts stash entries, reported by the group's carrier.
 	Stashes int
 	// NoRemote means no remote is configured at all.
 	NoRemote bool
 	// FetchFailed means --fetch could not reach some remote.
 	FetchFailed bool
-	// Linked marks a linked worktree. Ref-store state (unpushed
-	// commits, stashes) is shared with the primary worktree and is
-	// reported there once.
+	// Linked marks a linked worktree, one sharing its ref store with
+	// a primary worktree elsewhere.
 	Linked bool
 	// UnpushedBranches carries per-branch unpushed counts when the
 	// probe ran verbose.
@@ -72,6 +73,3 @@ func (r Report) Signs() string {
 	}
 	return string(b)
 }
-
-// Clean reports whether nothing needs attention.
-func (r Report) Clean() bool { return r.Err == nil && r.Signs() == "" }

@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/jkbstf/git-comb/internal/comb"
@@ -47,7 +48,7 @@ func main() {
 
 // run is the whole program behind main, kept separate so tests can
 // drive it with their own streams and read the exit code.
-func run(args []string, stdout, stderr *os.File) int {
+func run(args []string, stdout, stderr io.Writer) int {
 	var (
 		opts        comb.Options
 		colorWhen   string
@@ -70,7 +71,8 @@ func run(args []string, stdout, stderr *os.File) int {
 	fs.StringVar(&colorWhen, "color", "auto", "")
 	fs.BoolVar(&showVersion, "version", false, "")
 
-	if err := fs.Parse(args); err != nil {
+	roots, err := parseArgs(fs, args)
+	if err != nil {
 		if errors.Is(err, flag.ErrHelp) {
 			fmt.Fprintf(stdout, usageFmt, comb.DefaultJobs())
 			return 0
@@ -90,7 +92,7 @@ func run(args []string, stdout, stderr *os.File) int {
 		return 2
 	}
 
-	opts.Roots = fs.Args()
+	opts.Roots = roots
 	if len(opts.Roots) == 0 {
 		opts.Roots = []string{"."}
 	}
@@ -106,8 +108,7 @@ func run(args []string, stdout, stderr *os.File) int {
 		Verbose: opts.Verbose,
 		Color:   useColor,
 	})
-	fmt.Fprintf(stderr, "combed %d repositories in %s: %d need attention\n",
-		len(reports), time.Since(start).Round(time.Millisecond), attention)
+	fmt.Fprintln(stderr, summary(len(reports), attention, failed, time.Since(start)))
 
 	switch {
 	case failed > 0:
@@ -118,9 +119,102 @@ func run(args []string, stdout, stderr *os.File) int {
 	return 0
 }
 
+// parseArgs parses flags the way git commands do: options and
+// directories may be interleaved, single-letter boolean flags
+// combine ("-fv"), -j takes an attached value ("-j4"), and everything
+// after "--" is a directory.
+func parseArgs(fs *flag.FlagSet, args []string) ([]string, error) {
+	head := args
+	var tail []string
+	for i, a := range args {
+		if a == "--" {
+			head, tail = args[:i], args[i+1:]
+			break
+		}
+	}
+
+	var roots []string
+	rest := expandShortFlags(head)
+	for {
+		if err := fs.Parse(rest); err != nil {
+			return nil, err
+		}
+		rest = fs.Args()
+		if len(rest) == 0 {
+			break
+		}
+		roots = append(roots, rest[0])
+		rest = rest[1:]
+	}
+	return append(roots, tail...), nil
+}
+
+// expandShortFlags rewrites "-fv" into "-f -v" and "-j4" into "-j 4",
+// which the standard flag package does not do on its own.
+func expandShortFlags(args []string) []string {
+	const boolShorts = "fva"
+	out := make([]string, 0, len(args))
+	for _, a := range args {
+		if len(a) < 3 || a[0] != '-' || a[1] == '-' {
+			out = append(out, a)
+			continue
+		}
+		body := a[1:]
+		switch {
+		case body[0] == 'j' && allDigits(body[1:]):
+			out = append(out, "-j", body[1:])
+		case strings.Trim(body, boolShorts) == "":
+			for _, c := range body {
+				out = append(out, "-"+string(c))
+			}
+		default:
+			out = append(out, a)
+		}
+	}
+	return out
+}
+
+func allDigits(s string) bool {
+	if s == "" {
+		return false
+	}
+	for _, r := range s {
+		if r < '0' || r > '9' {
+			return false
+		}
+	}
+	return true
+}
+
+// summary is the one human line, written to stderr so stdout stays a
+// pure finding list.
+func summary(repos, attention, failed int, elapsed time.Duration) string {
+	noun := "repositories"
+	if repos == 1 {
+		noun = "repository"
+	}
+	verb := "need"
+	if attention == 1 {
+		verb = "needs"
+	}
+	s := fmt.Sprintf("combed %d %s in %s: %d %s attention",
+		repos, noun, fmtDuration(elapsed), attention, verb)
+	if failed > 0 {
+		s += fmt.Sprintf(", %d failed", failed)
+	}
+	return s
+}
+
+func fmtDuration(d time.Duration) string {
+	if d < time.Millisecond {
+		return "<1ms"
+	}
+	return d.Round(time.Millisecond).String()
+}
+
 // colorEnabled resolves the --color flag. Auto means: a terminal on
 // stdout, NO_COLOR unset, and TERM not dumb.
-func colorEnabled(when string, out *os.File) (bool, error) {
+func colorEnabled(when string, out io.Writer) (bool, error) {
 	switch when {
 	case "always":
 		return true, nil
@@ -130,7 +224,11 @@ func colorEnabled(when string, out *os.File) (bool, error) {
 		if os.Getenv("NO_COLOR") != "" || os.Getenv("TERM") == "dumb" {
 			return false, nil
 		}
-		info, err := out.Stat()
+		f, ok := out.(*os.File)
+		if !ok {
+			return false, nil
+		}
+		info, err := f.Stat()
 		if err != nil {
 			return false, nil
 		}

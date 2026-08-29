@@ -15,9 +15,8 @@ func TestParseStatus(t *testing.T) {
 				"# branch.upstream origin/master\n" +
 				"# branch.ab +0 -0\n",
 			want: worktreeStatus{
-				Branch:      "master",
-				OID:         "4a3b2c1d4a3b2c1d4a3b2c1d4a3b2c1d4a3b2c1d",
-				HasUpstream: true,
+				Branch: "master",
+				OID:    "4a3b2c1d4a3b2c1d4a3b2c1d4a3b2c1d4a3b2c1d",
 			},
 		},
 		{
@@ -27,11 +26,10 @@ func TestParseStatus(t *testing.T) {
 				"# branch.upstream origin/master\n" +
 				"# branch.ab +3 -2\n",
 			want: worktreeStatus{
-				Branch:      "master",
-				OID:         "4a3b2c1d4a3b2c1d4a3b2c1d4a3b2c1d4a3b2c1d",
-				HasUpstream: true,
-				Ahead:       3,
-				Behind:      2,
+				Branch: "master",
+				OID:    "4a3b2c1d4a3b2c1d4a3b2c1d4a3b2c1d4a3b2c1d",
+				Ahead:  3,
+				Behind: 2,
 			},
 		},
 		{
@@ -98,12 +96,12 @@ func TestParseStatus(t *testing.T) {
 			},
 		},
 		{
-			name: "empty repository",
+			name: "unborn head",
 			out: "# branch.oid (initial)\n" +
 				"# branch.head master\n",
 			want: worktreeStatus{
 				Branch: "master",
-				Empty:  true,
+				Unborn: true,
 			},
 		},
 		{
@@ -171,7 +169,7 @@ func TestDescribeBranch(t *testing.T) {
 	}
 }
 
-func TestSignsOrderAndClean(t *testing.T) {
+func TestSignsOrder(t *testing.T) {
 	all := Report{
 		Dirty:       true,
 		Unpushed:    1,
@@ -185,10 +183,7 @@ func TestSignsOrderAndClean(t *testing.T) {
 	if got, want := all.Signs(), "DUABSENR"; got != want {
 		t.Errorf("Signs() = %q, want %q", got, want)
 	}
-	if all.Clean() {
-		t.Error("Clean() = true for a report full of findings")
-	}
-	if !(Report{}).Clean() {
-		t.Error("Clean() = false for an empty report")
+	if got := (Report{}).Signs(); got != "" {
+		t.Errorf("Signs() = %q for a zero report, want empty", got)
 	}
 }
