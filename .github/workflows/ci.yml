@@ -2,11 +2,14 @@ name: CI
 
 on:
   push:
-    branches: [master, "*-gate"]
   pull_request:
 
 permissions:
   contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   test:
@@ -23,6 +26,8 @@ jobs:
       - name: Check formatting
         shell: bash
         run: test -z "$(gofmt -l .)"
+      - name: Check module tidiness
+        run: go mod tidy -diff
       - run: go vet ./...
       - run: go test -race ./...
 
@@ -35,4 +40,4 @@ jobs:
           go-version: stable
       - uses: golangci/golangci-lint-action@v9
         with:
-          version: latest
+          version: v2.13.2
