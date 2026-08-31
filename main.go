@@ -123,11 +123,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 			fmt.Fprintf(stderr, "git-comb: --except: %v\n", err)
 			return 2
 		}
-		opts.Only, err = hidden.Complement()
-		if err != nil {
-			fmt.Fprintf(stderr, "git-comb: --except: %v\n", err)
-			return 2
-		}
+		opts.Only = hidden.Complement()
 	}
 
 	opts.Roots = roots

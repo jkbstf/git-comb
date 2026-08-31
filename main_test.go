@@ -109,11 +109,17 @@ func TestRunExceptFlag(t *testing.T) {
 		t.Errorf("stderr = %q", stderr.String())
 	}
 
+	// Excluding every sign is vacuous, not an error: the scan looks
+	// for nothing and finds it.
+	stdout.Reset()
 	stderr.Reset()
-	if code := run([]string{"--except", "DUABSELO", t.TempDir()}, &stdout, &stderr); code != 2 {
-		t.Errorf("exit = %d for excluding everything, want 2", code)
+	if code := run([]string{"--except", "DUABSELO", t.TempDir()}, &stdout, &stderr); code != 0 {
+		t.Errorf("exit = %d for excluding everything, want 0: %s", code, stderr.String())
 	}
-	if !strings.Contains(stderr.String(), "nothing to look for") {
+	if stdout.Len() != 0 {
+		t.Errorf("stdout = %q, want empty", stdout.String())
+	}
+	if !strings.Contains(stderr.String(), "0 need attention") {
 		t.Errorf("stderr = %q", stderr.String())
 	}
 }
