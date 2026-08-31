@@ -12,7 +12,7 @@ $ git comb ~/Projects
 DU     /Users/js/Projects/website [main]
 S      /Users/js/Projects/paperwork [master]
 U      /Users/js/Projects/tools/scanner [main]
-combed 25 repositories in 412ms: 3 need attention
+combed 25 repositories: 3 need attention
 ```
 
 ## Why another status tool
@@ -90,7 +90,7 @@ column, the repository path, and the checked-out branch.
 
 | Option | Effect |
 |---|---|
-| `--fetch` | fetch all remotes first, so behind is current |
+| `--fetch` | fetch all remotes first, prompting if needed, so behind is current |
 | `-v, --verbose` | list the branches that hold unpushed commits |
 | `-a, --all` | print clean repositories too |
 | `-o, --only SIGNS` | look only for these sign classes, e.g. `-o DUS` |
@@ -122,7 +122,7 @@ except then subtracts, and a selection that ends empty simply finds
 nothing. Classes you did not ask for are neither probed nor printed,
 which also makes a narrow scan faster, and the exit status follows
 what you asked for. Whenever the selection is narrowed — by flag or
-by config — the summary line notes it (`; signs: DU`). Probe
+by config — the summary line notes it (`(DU only)`). Probe
 failures are always reported.
 
 Exit status is 0 when everything is clean, 1 when something needs
@@ -162,7 +162,7 @@ grammar: they match the branch or directory name, and `*` does not
 cross `/`, so `backup/*` matches `backup/a` but not `backup/a/b`.
 
 Acknowledged findings are never silently gone: the summary line
-counts them — `; acknowledged: 1 repository, 13 branches` — and
+counts them — `(1 repository and 13 branches acknowledged)` — and
 `--no-ignores` shows the unfiltered truth.
 
 ## Design
@@ -174,9 +174,11 @@ counts them — `; acknowledged: 1 repository, 13 branches` — and
 - Read-only by construction: probes pass `--no-optional-locks`, so a
   scan never writes to a repository or races an editor for the index.
   The one exception is the opt-in `--fetch`, which runs once per
-  repository (not once per worktree), uses your configured credential
-  helpers, and never prompts on the terminal — an unreachable remote
-  is reported as `R`, not a hang.
+  repository (not once per worktree) and uses your configured
+  authentication, including interactive credential, passphrase, and
+  host-confirmation prompts. Fetches are serialized so prompts cannot
+  overlap; local probes remain parallel. An unreachable remote is
+  reported as `O`.
 - Linked worktrees are recognized: commits on branches and stashes
   live in the shared ref store and are counted once per repository —
   at the primary worktree, or at one of the linked worktrees when the

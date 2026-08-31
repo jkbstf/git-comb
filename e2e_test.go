@@ -214,7 +214,7 @@ func TestE2EKitchenSink(t *testing.T) {
 	for _, wantErr := range []string{
 		"combed 6 repositories",
 		"4 need attention",
-		"acknowledged: 1 repository",
+		"1 repository acknowledged",
 	} {
 		if !strings.Contains(res.stderr, wantErr) {
 			t.Errorf("stderr missing %q: %q", wantErr, res.stderr)

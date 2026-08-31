@@ -11,7 +11,6 @@ import (
 	"io"
 	"os"
 	"strings"
-	"time"
 
 	"github.com/jkbstf/git-comb/internal/comb"
 )
@@ -30,7 +29,8 @@ uncommitted changes, commits unreachable from any remote, and stashes.
     -o, --only SIGNS  look only for these sign classes (e.g. DUS)
     -x, --except SIGNS  look for everything but these classes (e.g. AB)
     -j, --jobs N      probe N repositories in parallel (default %d)
-        --fetch       fetch all remotes first, so behind is current
+        --fetch       fetch all remotes first (may prompt), so behind
+                      is current
         --hidden      descend into hidden directories
         --prune GLOB  skip directories matching GLOB (repeatable;
                       node_modules is always skipped)
@@ -156,7 +156,6 @@ func run(args []string, stdout, stderr io.Writer) int {
 		opts.Only = opts.Only.Minus(hidden)
 	}
 
-	start := time.Now()
 	reports, err := comb.Run(opts)
 	if err != nil {
 		fmt.Fprintf(stderr, "git-comb: %v\n", err)
@@ -182,7 +181,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 			signsLabel = "none"
 		}
 	}
-	fmt.Fprintln(stderr, summary(len(reports), attention, failed, ackedRepos, ackedBranches, signsLabel, time.Since(start)))
+	fmt.Fprintln(stderr, summary(len(reports), attention, failed, ackedRepos, ackedBranches, signsLabel))
 
 	switch {
 	case failed > 0:
@@ -257,8 +256,9 @@ func expandShortFlags(args []string) []string {
 // summary is the one human line, written to stderr so stdout stays a
 // pure finding list. Acknowledged repositories and branches — and any
 // narrowed sign selection, however it was configured — are disclosed
-// here: suppression asked for is focus, but it must never be silent.
-func summary(repos, attention, failed, ackedRepos, ackedBranches int, signs string, elapsed time.Duration) string {
+// as qualifications: suppression asked for is focus, but it must never
+// be silent.
+func summary(repos, attention, failed, ackedRepos, ackedBranches int, signs string) string {
 	noun := "repositories"
 	if repos == 1 {
 		noun = "repository"
@@ -267,11 +267,11 @@ func summary(repos, attention, failed, ackedRepos, ackedBranches int, signs stri
 	if attention == 1 {
 		verb = "needs"
 	}
-	s := fmt.Sprintf("combed %d %s in %s: %d %s attention",
-		repos, noun, fmtDuration(elapsed), attention, verb)
+	s := fmt.Sprintf("combed %d %s: %d %s attention", repos, noun, attention, verb)
 	if failed > 0 {
 		s += fmt.Sprintf(", %d failed", failed)
 	}
+	var qualifications []string
 	if ackedRepos > 0 || ackedBranches > 0 {
 		var parts []string
 		if ackedRepos > 0 {
@@ -280,10 +280,17 @@ func summary(repos, attention, failed, ackedRepos, ackedBranches int, signs stri
 		if ackedBranches > 0 {
 			parts = append(parts, fmt.Sprintf("%d %s", ackedBranches, pluralize(ackedBranches, "branch", "branches")))
 		}
-		s += "; acknowledged: " + strings.Join(parts, ", ")
+		qualifications = append(qualifications, strings.Join(parts, " and ")+" acknowledged")
 	}
 	if signs != "" {
-		s += "; signs: " + signs
+		if signs == "none" {
+			qualifications = append(qualifications, "no signs checked")
+		} else {
+			qualifications = append(qualifications, signs+" only")
+		}
+	}
+	if len(qualifications) > 0 {
+		s += " (" + strings.Join(qualifications, ", ") + ")"
 	}
 	return s
 }
@@ -293,13 +300,6 @@ func pluralize(n int, one, many string) string {
 		return one
 	}
 	return many
-}
-
-func fmtDuration(d time.Duration) string {
-	if d < time.Millisecond {
-		return "<1ms"
-	}
-	return d.Round(time.Millisecond).String()
 }
 
 // colorEnabled resolves the --color flag. Auto means: a terminal on

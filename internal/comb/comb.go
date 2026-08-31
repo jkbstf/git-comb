@@ -17,7 +17,8 @@ import (
 type Options struct {
 	// Roots are the directories to comb.
 	Roots []string
-	// Fetch updates all remotes before probing, so behind is current.
+	// Fetch updates all remotes before probing, prompting for
+	// authentication when needed, so behind is current.
 	Fetch bool
 	// Verbose gathers per-branch unpushed detail.
 	Verbose bool

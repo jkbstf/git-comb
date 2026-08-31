@@ -4,12 +4,25 @@ import (
 	"fmt"
 	"path"
 	"strings"
+	"sync"
 )
+
+// fetchMu keeps interactive authentication usable when several
+// repositories are probed concurrently. Local probes remain parallel,
+// but only one fetch may own the terminal at a time.
+var fetchMu sync.Mutex
+
+func fetch(repo string) error {
+	fetchMu.Lock()
+	defer fetchMu.Unlock()
+	_, err := gitOut(repo, "fetch", "--all", "--quiet")
+	return err
+}
 
 // probe interrogates one repository. Every command is read-only; the
 // single exception is the opt-in fetch, run once per repository group
-// by its carrier, with terminal credential prompts disabled so a
-// parallel scan can never hang waiting for input.
+// by its carrier. Fetches may prompt for credentials, so they are
+// serialized while the remaining local probes stay parallel.
 //
 // carrier marks the one worktree of a repository group that counts
 // state shared through the common ref store: commits on local
@@ -42,7 +55,7 @@ func probe(repo string, opts Options, carrier, linked bool) Report {
 	}
 
 	if opts.Fetch && carrier {
-		if _, err := gitOutEnv(repo, []string{"GIT_TERMINAL_PROMPT=0"}, "fetch", "--all", "--quiet"); err != nil {
+		if err := fetch(repo); err != nil {
 			r.FetchFailed = true
 		}
 	}

@@ -8,7 +8,6 @@ import (
 	"slices"
 	"strings"
 	"testing"
-	"time"
 )
 
 // isolateConfig keeps run() tests away from the developer's real git
@@ -107,7 +106,7 @@ func TestRunExceptFlag(t *testing.T) {
 	if code := run([]string{"--only", "DUS", "--except", "S", t.TempDir()}, &stdout, &stderr); code != 0 {
 		t.Errorf("exit = %d for composed selection, want 0: %s", code, stderr.String())
 	}
-	if !strings.Contains(stderr.String(), "; signs: DU") {
+	if !strings.Contains(stderr.String(), "(DU only)") {
 		t.Errorf("stderr = %q, want the effective selection disclosed", stderr.String())
 	}
 
@@ -124,7 +123,7 @@ func TestRunExceptFlag(t *testing.T) {
 	if !strings.Contains(stderr.String(), "0 need attention") {
 		t.Errorf("stderr = %q", stderr.String())
 	}
-	if !strings.Contains(stderr.String(), "; signs: none") {
+	if !strings.Contains(stderr.String(), "(no signs checked)") {
 		t.Errorf("stderr = %q, want the empty selection disclosed", stderr.String())
 	}
 }
@@ -147,7 +146,7 @@ func TestRunSignFiltersFromConfig(t *testing.T) {
 	if !strings.Contains(stdout.String(), "E ") || strings.Contains(stdout.String(), "EL") {
 		t.Errorf("comb.except not applied to the row: %q", stdout.String())
 	}
-	if !strings.Contains(stderr.String(), "; signs: DUABSEO") {
+	if !strings.Contains(stderr.String(), "(DUABSEO only)") {
 		t.Errorf("stderr = %q, want config-driven selection disclosed", stderr.String())
 	}
 
@@ -157,7 +156,7 @@ func TestRunSignFiltersFromConfig(t *testing.T) {
 	if code := run([]string{"--only", "EL", base}, &stdout, &stderr); code != 1 {
 		t.Fatalf("exit = %d, want 1: %s", code, stderr.String())
 	}
-	if !strings.Contains(stderr.String(), "; signs: E") {
+	if !strings.Contains(stderr.String(), "(E only)") {
 		t.Errorf("stderr = %q, want EL minus L", stderr.String())
 	}
 }
@@ -286,32 +285,23 @@ func TestSummary(t *testing.T) {
 		signs                     string
 		want                      string
 	}{
-		{0, 0, 0, 0, 0, "", "combed 0 repositories in 5ms: 0 need attention"},
-		{1, 1, 0, 0, 0, "", "combed 1 repository in 5ms: 1 needs attention"},
-		{3, 2, 0, 0, 0, "", "combed 3 repositories in 5ms: 2 need attention"},
-		{3, 1, 2, 0, 0, "", "combed 3 repositories in 5ms: 1 needs attention, 2 failed"},
-		{5, 1, 0, 1, 13, "", "combed 5 repositories in 5ms: 1 needs attention; acknowledged: 1 repository, 13 branches"},
-		{5, 0, 0, 2, 0, "", "combed 5 repositories in 5ms: 0 need attention; acknowledged: 2 repositories"},
-		{5, 0, 0, 0, 1, "", "combed 5 repositories in 5ms: 0 need attention; acknowledged: 1 branch"},
-		{5, 2, 0, 0, 0, "DU", "combed 5 repositories in 5ms: 2 need attention; signs: DU"},
-		{5, 0, 0, 1, 0, "none", "combed 5 repositories in 5ms: 0 need attention; acknowledged: 1 repository; signs: none"},
+		{0, 0, 0, 0, 0, "", "combed 0 repositories: 0 need attention"},
+		{1, 1, 0, 0, 0, "", "combed 1 repository: 1 needs attention"},
+		{3, 2, 0, 0, 0, "", "combed 3 repositories: 2 need attention"},
+		{3, 1, 2, 0, 0, "", "combed 3 repositories: 1 needs attention, 2 failed"},
+		{5, 1, 0, 1, 13, "", "combed 5 repositories: 1 needs attention (1 repository and 13 branches acknowledged)"},
+		{5, 0, 0, 2, 0, "", "combed 5 repositories: 0 need attention (2 repositories acknowledged)"},
+		{5, 0, 0, 0, 1, "", "combed 5 repositories: 0 need attention (1 branch acknowledged)"},
+		{5, 2, 0, 0, 0, "DU", "combed 5 repositories: 2 need attention (DU only)"},
+		{5, 0, 0, 1, 0, "none", "combed 5 repositories: 0 need attention (1 repository acknowledged, no signs checked)"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.want, func(t *testing.T) {
-			got := summary(tt.repos, tt.attention, tt.failed, tt.ackedRepos, tt.ackedBranches, tt.signs, 5*time.Millisecond)
+			got := summary(tt.repos, tt.attention, tt.failed, tt.ackedRepos, tt.ackedBranches, tt.signs)
 			if got != tt.want {
 				t.Errorf("summary = %q, want %q", got, tt.want)
 			}
 		})
-	}
-}
-
-func TestFmtDuration(t *testing.T) {
-	if got := fmtDuration(300 * time.Microsecond); got != "<1ms" {
-		t.Errorf("fmtDuration(<1ms) = %q", got)
-	}
-	if got := fmtDuration(1490 * time.Millisecond); got != "1.49s" {
-		t.Errorf("fmtDuration = %q, want 1.49s", got)
 	}
 }
 
