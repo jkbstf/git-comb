@@ -48,19 +48,22 @@ func ParseSignSet(s string) (SignSet, error) {
 // All reports whether every class is selected.
 func (s SignSet) All() bool { return s.set == "" && !s.none }
 
-// Complement returns the classes not in s — how --except turns "hide
-// these" into a selection. Excluding every class yields a selection
-// that finds nothing, and a scan that looks for nothing succeeds at
-// it.
-func (s SignSet) Complement() SignSet {
-	if s.All() {
-		return SignSet{none: true}
-	}
+// Minus returns the classes of s not in o — how --except subtracts
+// from whatever --only selected. A selection that ends empty finds
+// nothing, and a scan that looks for nothing succeeds at it.
+func (s SignSet) Minus(o SignSet) SignSet {
 	var b strings.Builder
-	for _, r := range signOrder {
-		if !strings.ContainsRune(s.set, r) {
-			b.WriteRune(r)
+	for i := 0; i < len(signOrder); i++ {
+		c := signOrder[i]
+		if s.Has(c) && !o.Has(c) {
+			b.WriteByte(c)
 		}
+	}
+	switch b.Len() {
+	case 0:
+		return SignSet{none: true}
+	case len(signOrder):
+		return SignSet{}
 	}
 	return SignSet{set: b.String()}
 }

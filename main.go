@@ -42,10 +42,11 @@ uncommitted changes, commits unreachable from any remote, and stashes.
 Signs: D dirty  U unpushed  A ahead  B behind  S stashed
        E empty  L local  O offline
 
-Defaults come from git config (comb.prune, comb.jobs, comb.hidden);
-comb.ignore and comb.ignoreBranch acknowledge repositories and
-branches per clone or globally. Flags win; the summary counts
-whatever was acknowledged.
+Defaults come from git config (comb.prune, comb.jobs, comb.hidden,
+comb.only, comb.except); comb.ignore and comb.ignoreBranch
+acknowledge repositories and branches per clone or globally. Flags
+win key by key, only and except compose, and the summary discloses
+acknowledgments and any narrowed selection.
 
 Exit status: 0 all clean, 1 findings, 2 errors.
 `
@@ -106,26 +107,6 @@ func run(args []string, stdout, stderr io.Writer) int {
 		return 2
 	}
 
-	if onlySigns != "" && exceptSigns != "" {
-		fmt.Fprintln(stderr, "git-comb: use --only or --except, not both")
-		return 2
-	}
-	if onlySigns != "" {
-		opts.Only, err = comb.ParseSignSet(onlySigns)
-		if err != nil {
-			fmt.Fprintf(stderr, "git-comb: --only: %v\n", err)
-			return 2
-		}
-	}
-	if exceptSigns != "" {
-		hidden, err := comb.ParseSignSet(exceptSigns)
-		if err != nil {
-			fmt.Fprintf(stderr, "git-comb: --except: %v\n", err)
-			return 2
-		}
-		opts.Only = hidden.Complement()
-	}
-
 	opts.Roots = roots
 	if len(opts.Roots) == 0 {
 		opts.Roots = []string{"."}
@@ -148,6 +129,33 @@ func run(args []string, stdout, stderr io.Writer) int {
 	}
 	opts.Prune = append(comb.PruneList(settings.Prune), opts.Prune...)
 
+	// The selection composes: only chooses (flag over comb.only, else
+	// everything), then except subtracts (flag over comb.except). An
+	// empty result finds nothing.
+	onlySrc, onlyStr := "--only", onlySigns
+	if onlyStr == "" {
+		onlySrc, onlyStr = "comb.only", settings.Only
+	}
+	if onlyStr != "" {
+		opts.Only, err = comb.ParseSignSet(onlyStr)
+		if err != nil {
+			fmt.Fprintf(stderr, "git-comb: %s: %v\n", onlySrc, err)
+			return 2
+		}
+	}
+	exceptSrc, exceptStr := "--except", exceptSigns
+	if exceptStr == "" {
+		exceptSrc, exceptStr = "comb.except", settings.Except
+	}
+	if exceptStr != "" {
+		hidden, err := comb.ParseSignSet(exceptStr)
+		if err != nil {
+			fmt.Fprintf(stderr, "git-comb: %s: %v\n", exceptSrc, err)
+			return 2
+		}
+		opts.Only = opts.Only.Minus(hidden)
+	}
+
 	start := time.Now()
 	reports, err := comb.Run(opts)
 	if err != nil {
@@ -167,7 +175,14 @@ func run(args []string, stdout, stderr io.Writer) int {
 		}
 		ackedBranches += r.AckedBranches
 	}
-	fmt.Fprintln(stderr, summary(len(reports), attention, failed, ackedRepos, ackedBranches, time.Since(start)))
+	signsLabel := ""
+	if !opts.Only.All() {
+		signsLabel = opts.Only.String()
+		if signsLabel == "" {
+			signsLabel = "none"
+		}
+	}
+	fmt.Fprintln(stderr, summary(len(reports), attention, failed, ackedRepos, ackedBranches, signsLabel, time.Since(start)))
 
 	switch {
 	case failed > 0:
@@ -240,10 +255,10 @@ func expandShortFlags(args []string) []string {
 }
 
 // summary is the one human line, written to stderr so stdout stays a
-// pure finding list. Acknowledged repositories and branches are
-// disclosed here: suppression asked for is focus, but it must never
-// be silent.
-func summary(repos, attention, failed, ackedRepos, ackedBranches int, elapsed time.Duration) string {
+// pure finding list. Acknowledged repositories and branches — and any
+// narrowed sign selection, however it was configured — are disclosed
+// here: suppression asked for is focus, but it must never be silent.
+func summary(repos, attention, failed, ackedRepos, ackedBranches int, signs string, elapsed time.Duration) string {
 	noun := "repositories"
 	if repos == 1 {
 		noun = "repository"
@@ -266,6 +281,9 @@ func summary(repos, attention, failed, ackedRepos, ackedBranches int, elapsed ti
 			parts = append(parts, fmt.Sprintf("%d %s", ackedBranches, pluralize(ackedBranches, "branch", "branches")))
 		}
 		s += "; acknowledged: " + strings.Join(parts, ", ")
+	}
+	if signs != "" {
+		s += "; signs: " + signs
 	}
 	return s
 }

@@ -101,12 +101,14 @@ func TestRunExceptFlag(t *testing.T) {
 		t.Errorf("exit = %d, want 0: %s", code, stderr.String())
 	}
 
+	// only and except compose: only chooses, except subtracts, and
+	// the summary discloses the effective selection.
 	stderr.Reset()
-	if code := run([]string{"--only", "D", "--except", "A", t.TempDir()}, &stdout, &stderr); code != 2 {
-		t.Errorf("exit = %d for --only with --except, want 2", code)
+	if code := run([]string{"--only", "DUS", "--except", "S", t.TempDir()}, &stdout, &stderr); code != 0 {
+		t.Errorf("exit = %d for composed selection, want 0: %s", code, stderr.String())
 	}
-	if !strings.Contains(stderr.String(), "not both") {
-		t.Errorf("stderr = %q", stderr.String())
+	if !strings.Contains(stderr.String(), "; signs: DU") {
+		t.Errorf("stderr = %q, want the effective selection disclosed", stderr.String())
 	}
 
 	// Excluding every sign is vacuous, not an error: the scan looks
@@ -121,6 +123,42 @@ func TestRunExceptFlag(t *testing.T) {
 	}
 	if !strings.Contains(stderr.String(), "0 need attention") {
 		t.Errorf("stderr = %q", stderr.String())
+	}
+	if !strings.Contains(stderr.String(), "; signs: none") {
+		t.Errorf("stderr = %q, want the empty selection disclosed", stderr.String())
+	}
+}
+
+// TestRunSignFiltersFromConfig: comb.only and comb.except behave like
+// standing flags, and a flag overrides its matching key while still
+// composing with the other.
+func TestRunSignFiltersFromConfig(t *testing.T) {
+	cfg := isolateConfig(t)
+	base := t.TempDir()
+	gitInit(t, filepath.Join(base, "repo")) // a fresh repo reads EL
+
+	if err := os.WriteFile(cfg, []byte("[comb]\n\texcept = L\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	var stdout, stderr bytes.Buffer
+	if code := run([]string{base}, &stdout, &stderr); code != 1 {
+		t.Fatalf("exit = %d, want 1: %s", code, stderr.String())
+	}
+	if !strings.Contains(stdout.String(), "E ") || strings.Contains(stdout.String(), "EL") {
+		t.Errorf("comb.except not applied to the row: %q", stdout.String())
+	}
+	if !strings.Contains(stderr.String(), "; signs: DUABSEO") {
+		t.Errorf("stderr = %q, want config-driven selection disclosed", stderr.String())
+	}
+
+	// A flag --only composes with the standing comb.except.
+	stdout.Reset()
+	stderr.Reset()
+	if code := run([]string{"--only", "EL", base}, &stdout, &stderr); code != 1 {
+		t.Fatalf("exit = %d, want 1: %s", code, stderr.String())
+	}
+	if !strings.Contains(stderr.String(), "; signs: E") {
+		t.Errorf("stderr = %q, want EL minus L", stderr.String())
 	}
 }
 
@@ -245,19 +283,22 @@ func TestSummary(t *testing.T) {
 	tests := []struct {
 		repos, attention, failed  int
 		ackedRepos, ackedBranches int
+		signs                     string
 		want                      string
 	}{
-		{0, 0, 0, 0, 0, "combed 0 repositories in 5ms: 0 need attention"},
-		{1, 1, 0, 0, 0, "combed 1 repository in 5ms: 1 needs attention"},
-		{3, 2, 0, 0, 0, "combed 3 repositories in 5ms: 2 need attention"},
-		{3, 1, 2, 0, 0, "combed 3 repositories in 5ms: 1 needs attention, 2 failed"},
-		{5, 1, 0, 1, 13, "combed 5 repositories in 5ms: 1 needs attention; acknowledged: 1 repository, 13 branches"},
-		{5, 0, 0, 2, 0, "combed 5 repositories in 5ms: 0 need attention; acknowledged: 2 repositories"},
-		{5, 0, 0, 0, 1, "combed 5 repositories in 5ms: 0 need attention; acknowledged: 1 branch"},
+		{0, 0, 0, 0, 0, "", "combed 0 repositories in 5ms: 0 need attention"},
+		{1, 1, 0, 0, 0, "", "combed 1 repository in 5ms: 1 needs attention"},
+		{3, 2, 0, 0, 0, "", "combed 3 repositories in 5ms: 2 need attention"},
+		{3, 1, 2, 0, 0, "", "combed 3 repositories in 5ms: 1 needs attention, 2 failed"},
+		{5, 1, 0, 1, 13, "", "combed 5 repositories in 5ms: 1 needs attention; acknowledged: 1 repository, 13 branches"},
+		{5, 0, 0, 2, 0, "", "combed 5 repositories in 5ms: 0 need attention; acknowledged: 2 repositories"},
+		{5, 0, 0, 0, 1, "", "combed 5 repositories in 5ms: 0 need attention; acknowledged: 1 branch"},
+		{5, 2, 0, 0, 0, "DU", "combed 5 repositories in 5ms: 2 need attention; signs: DU"},
+		{5, 0, 0, 1, 0, "none", "combed 5 repositories in 5ms: 0 need attention; acknowledged: 1 repository; signs: none"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.want, func(t *testing.T) {
-			got := summary(tt.repos, tt.attention, tt.failed, tt.ackedRepos, tt.ackedBranches, 5*time.Millisecond)
+			got := summary(tt.repos, tt.attention, tt.failed, tt.ackedRepos, tt.ackedBranches, tt.signs, 5*time.Millisecond)
 			if got != tt.want {
 				t.Errorf("summary = %q, want %q", got, tt.want)
 			}

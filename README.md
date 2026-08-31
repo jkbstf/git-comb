@@ -117,10 +117,13 @@ Every sign is the initial of a single word:
 The signs divide into loss risk — `D`, `U`, `S`, `E`, `L`, work that
 exists nowhere else — and sync hygiene (`A`, `B`). `--only DUS` runs
 a pure loss audit; `--except AB` says the same thing by naming the
-noise instead, which is often easier. The two are alternatives, not
-combinable. Classes you did not ask for are neither probed nor
-printed, which also makes a narrow scan faster, and the exit status
-follows what you asked for. Probe failures are always reported.
+noise instead, which is often easier. The two compose: only chooses,
+except then subtracts, and a selection that ends empty simply finds
+nothing. Classes you did not ask for are neither probed nor printed,
+which also makes a narrow scan faster, and the exit status follows
+what you asked for. Whenever the selection is narrowed — by flag or
+by config — the summary line notes it (`; signs: DU`). Probe
+failures are always reported.
 
 Exit status is 0 when everything is clean, 1 when something needs
 attention, and 2 on errors — so the command slots directly into
@@ -129,14 +132,18 @@ scripts and shell prompts.
 ## Configuration
 
 Settings live in git config — no extra file, and they travel with
-your dotfiles. Flags override them; `--prune` adds to `comb.prune`
-rather than replacing it.
+your dotfiles. Flags override their matching keys; `--prune` adds to
+`comb.prune` rather than replacing it, and the sign filters compose
+after each side is resolved: `comb.only` narrowed by `--except`, or
+any other pairing.
 
 | Key | Meaning |
 |---|---|
 | `comb.prune` (multi-valued) | directory-name globs to skip, like `--prune` |
 | `comb.jobs` | default probe parallelism |
 | `comb.hidden` | descend into hidden directories by default |
+| `comb.only` | standing sign selection, like `--only` |
+| `comb.except` | standing sign exclusion, like `--except` |
 | `comb.ignore` | acknowledge this repository entirely |
 | `comb.ignoreBranch` (multi-valued) | globs for branches whose unpushed commits are deliberate |
 

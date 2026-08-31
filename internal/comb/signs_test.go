@@ -67,18 +67,31 @@ func TestSignSetHasAndFilter(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	rest := hidden.Complement()
+	rest := (SignSet{}).Minus(hidden)
 	if got, want := rest.String(), "DUSELO"; got != want {
-		t.Errorf("Complement = %q, want %q", got, want)
+		t.Errorf("all minus AB = %q, want %q", got, want)
 	}
 	if rest.Has('A') || !rest.Has('D') {
-		t.Error("Complement membership wrong")
+		t.Error("Minus membership wrong")
 	}
 
-	// Excluding everything is a valid selection that finds nothing.
-	empty := (SignSet{}).Complement()
+	du, err := ParseSignSet("DU")
+	if err != nil {
+		t.Fatal(err)
+	}
+	u, err := ParseSignSet("U")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := du.Minus(u).String(); got != "D" {
+		t.Errorf("DU minus U = %q, want D", got)
+	}
+
+	// Subtracting everything selected is a valid selection that finds
+	// nothing.
+	empty := du.Minus(du)
 	if empty.All() {
-		t.Error("complement of the full set claims to select all")
+		t.Error("empty selection claims to select all")
 	}
 	for i := 0; i < len(signOrder); i++ {
 		if empty.Has(signOrder[i]) {
@@ -87,6 +100,9 @@ func TestSignSetHasAndFilter(t *testing.T) {
 	}
 	if got := empty.Filter("DUS"); got != "" {
 		t.Errorf("empty selection filtered %q, want empty", got)
+	}
+	if got := empty.Minus(u); got.Has('D') {
+		t.Errorf("minus on an empty selection resurrected %q", got.String())
 	}
 
 	full, err := ParseSignSet("DUABSELO")

@@ -7,11 +7,15 @@ import (
 )
 
 // Settings are the scan-level defaults read from git config at
-// startup. Command-line flags override them; prune values merge.
+// startup. Command-line flags override their matching keys; prune
+// values merge, and only/except compose by subtraction after each is
+// resolved.
 type Settings struct {
 	Prune  []string
 	Jobs   int
 	Hidden bool
+	Only   string
+	Except string
 }
 
 // LoadSettings reads comb.* scan defaults from the merged git config
@@ -39,6 +43,10 @@ func LoadSettings(dir string) (Settings, error) {
 				return Settings{}, fmt.Errorf("comb.hidden: %w", err)
 			}
 			s.Hidden = b
+		case "comb.only":
+			s.Only = e.value
+		case "comb.except":
+			s.Except = e.value
 		}
 	}
 	return s, nil
