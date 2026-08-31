@@ -180,7 +180,7 @@ func TestSignsOrder(t *testing.T) {
 		NoRemote:    true,
 		FetchFailed: true,
 	}
-	if got, want := all.Signs(), "DUABSENR"; got != want {
+	if got, want := all.Signs(), "DUABSELO"; got != want {
 		t.Errorf("Signs() = %q, want %q", got, want)
 	}
 	if got := (Report{}).Signs(); got != "" {

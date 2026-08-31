@@ -260,11 +260,11 @@ func TestProbeNoRemote(t *testing.T) {
 	commitFile(t, repo, "file.txt", "content\n", "first")
 
 	r := probeAlone(repo, Options{})
-	if got, want := r.Signs(), "N"; got != want {
+	if got, want := r.Signs(), "L"; got != want {
 		t.Errorf("Signs() = %q, want %q", got, want)
 	}
 	if r.Unpushed != 0 {
-		t.Errorf("Unpushed = %d with no remote, want 0 (N carries the case)", r.Unpushed)
+		t.Errorf("Unpushed = %d with no remote, want 0 (L carries the case)", r.Unpushed)
 	}
 }
 
@@ -275,7 +275,7 @@ func TestProbeEmptyRepo(t *testing.T) {
 	initRepo(t, repo)
 
 	r := probeAlone(repo, Options{})
-	if got, want := r.Signs(), "EN"; got != want {
+	if got, want := r.Signs(), "EL"; got != want {
 		t.Errorf("Signs() = %q, want %q", got, want)
 	}
 }

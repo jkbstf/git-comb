@@ -72,10 +72,10 @@ func (r Report) Signs() string {
 		b = append(b, 'E')
 	}
 	if r.NoRemote {
-		b = append(b, 'N')
+		b = append(b, 'L')
 	}
 	if r.FetchFailed {
-		b = append(b, 'R')
+		b = append(b, 'O')
 	}
 	return string(b)
 }

@@ -25,7 +25,7 @@ func probe(repo string, opts Options, carrier, linked bool) Report {
 	needUnpushed := opts.Only.Has('U')
 	needStash := opts.Only.Has('S')
 	needEmpty := opts.Only.Has('E')
-	needRemotes := needUnpushed || opts.Only.Has('N')
+	needRemotes := needUnpushed || opts.Only.Has('L')
 
 	var ackGlobs []string
 	if !opts.NoIgnores {
@@ -92,7 +92,7 @@ func probe(repo string, opts Options, carrier, linked bool) Report {
 	// Unpushed means reachable from local refs but from no
 	// remote-tracking ref — no upstream configuration needed, no
 	// network touched. With no remotes at all every commit would
-	// count, so the N sign carries that case instead. The carrier
+	// count, so the L sign carries that case instead. The carrier
 	// counts branch-reachable commits once for the whole group; each
 	// worktree adds its own detached-HEAD commits, restricted to
 	// those on no local branch so the two never overlap.

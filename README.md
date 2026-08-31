@@ -100,16 +100,18 @@ column, the repository path, and the checked-out branch.
 | `--no-ignores` | disregard `comb.ignore` and `comb.ignoreBranch` |
 | `--color WHEN` | `auto` (default), `always`, or `never` |
 
+Every sign is the initial of a single word:
+
 | Sign | Meaning |
 |---|---|
-| `D` | uncommitted changes, untracked files included |
-| `U` | commits that exist on no remote |
-| `A` | ahead of upstream |
-| `B` | behind upstream, as of the last fetch |
-| `S` | stash entries |
-| `E` | no commits yet |
-| `N` | no remote configured |
-| `R` | a remote could not be reached (with `--fetch`) |
+| `D` | **dirty** — uncommitted changes, untracked files included |
+| `U` | **unpushed** — commits that exist on no remote |
+| `A` | **ahead** — of its upstream |
+| `B` | **behind** — its upstream, as of the last fetch |
+| `S` | **stashed** — stash entries present |
+| `E` | **empty** — no commits on any branch |
+| `L` | **local** — no remote configured; the repository exists only here |
+| `O` | **offline** — a remote could not be reached (with `--fetch`) |
 
 The signs divide into loss risk — `D`, `U`, `S`, `E`, `N`, work that
 exists nowhere else — and sync hygiene (`A`, `B`). `--only DUS` runs

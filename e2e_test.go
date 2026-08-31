@@ -201,7 +201,7 @@ func TestE2EKitchenSink(t *testing.T) {
 	}
 	want := strings.Join([]string{
 		row("D", filepath.Join(base, "dirty")),
-		row("N", filepath.Join(base, "norem")),
+		row("L", filepath.Join(base, "norem")),
 		row("S", filepath.Join(base, "stash")),
 		row("U", filepath.Join(base, "unpushed")),
 	}, "\n") + "\n"

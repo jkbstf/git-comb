@@ -38,8 +38,8 @@ uncommitted changes, commits unreachable from any remote, and stashes.
         --version     print the version and exit
     -h, --help        show this help
 
-Signs: D dirty  U unpushed  A ahead  B behind  S stash
-       E empty  N no remote  R remote unreachable
+Signs: D dirty  U unpushed  A ahead  B behind  S stashed
+       E empty  L local  O offline
 
 Defaults come from git config (comb.prune, comb.jobs, comb.hidden);
 comb.ignore and comb.ignoreBranch acknowledge repositories and

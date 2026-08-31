@@ -13,7 +13,7 @@ func TestParseSignSet(t *testing.T) {
 		{in: "sud", want: "DUS"}, // canonical order restored
 		{in: "D,U S", want: "DUS"},
 		{in: "DDU", want: "DU"}, // duplicates collapse
-		{in: "DUABSENR", want: "DUABSENR"},
+		{in: "DUABSELO", want: "DUABSELO"},
 		{in: "", wantErr: true},
 		{in: ",", wantErr: true},
 		{in: "DX", wantErr: true},
@@ -63,7 +63,7 @@ func TestSignSetHasAndFilter(t *testing.T) {
 		t.Errorf("Filter(UAB) = %q, want empty", got)
 	}
 
-	full, err := ParseSignSet("DUABSENR")
+	full, err := ParseSignSet("DUABSELO")
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -6,7 +6,7 @@ import (
 )
 
 // signOrder is the canonical rendering order of the finding classes.
-const signOrder = "DUABSENR"
+const signOrder = "DUABSELO"
 
 // SignSet selects which finding classes a run looks for and reports.
 // The zero value selects every class. Classes outside the set are
