@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"io/fs"
 	"os"
+	"path"
 	"path/filepath"
 	"strings"
 )
@@ -13,17 +14,20 @@ import (
 // marks a linked worktree or a submodule checkout. The walk descends
 // into repositories, so nested checkouts are found too, but never
 // into .git itself. Hidden directories are skipped unless hidden is
-// set; node_modules and every name in prune are always skipped. An
-// unreadable subtree is skipped rather than aborting the scan.
+// set; node_modules and every directory whose name matches a prune
+// glob are always skipped. An unreadable subtree is skipped rather
+// than aborting the scan.
 //
 // Roots are resolved through symlinks before walking — a symlinked
 // root must scan what it points at, not silently scan nothing — and a
 // root that does not resolve to a directory is an error: a mistyped
 // root must never look like a clean tree.
 func Scan(roots []string, hidden bool, prune []string) ([]string, error) {
-	skip := map[string]bool{"node_modules": true}
-	for _, name := range prune {
-		skip[name] = true
+	patterns := append([]string{"node_modules"}, prune...)
+	for _, p := range patterns {
+		if _, err := path.Match(p, "probe"); err != nil {
+			return nil, fmt.Errorf("prune: bad pattern %q", p)
+		}
 	}
 
 	var repos []string
@@ -54,7 +58,7 @@ func Scan(roots []string, hidden bool, prune []string) ([]string, error) {
 			if !d.IsDir() || path == root {
 				return nil
 			}
-			if skip[d.Name()] {
+			if matchesAny(d.Name(), patterns) {
 				return fs.SkipDir
 			}
 			if !hidden && strings.HasPrefix(d.Name(), ".") {
@@ -67,6 +71,17 @@ func Scan(roots []string, hidden bool, prune []string) ([]string, error) {
 		}
 	}
 	return repos, nil
+}
+
+// matchesAny reports whether name matches one of the prune globs.
+// The patterns were validated up front, so Match cannot fail here.
+func matchesAny(name string, patterns []string) bool {
+	for _, p := range patterns {
+		if ok, _ := path.Match(p, name); ok {
+			return true
+		}
+	}
+	return false
 }
 
 // resolveRoot follows symlinks and insists on a directory.

@@ -695,6 +695,35 @@ func TestScanFindsNestedSkipsNoise(t *testing.T) {
 	}
 }
 
+// TestScanPruneGlobs: prune patterns glob against the directory
+// name, with the same semantics comb.ignoreBranch uses for branches.
+func TestScanPruneGlobs(t *testing.T) {
+	requireGit(t)
+	setupGitEnv(t)
+	base := tempDir(t)
+	for _, p := range []string{
+		filepath.Join(base, "foo-website"),
+		filepath.Join(base, "bar-website"),
+		filepath.Join(base, "keep"),
+	} {
+		initRepo(t, p)
+	}
+
+	got, err := Scan([]string{base}, false, []string{"*website"})
+	if err != nil {
+		t.Fatalf("Scan: %v", err)
+	}
+	if len(got) != 1 || got[0] != filepath.Join(base, "keep") {
+		t.Errorf("Scan = %v, want only keep", got)
+	}
+}
+
+func TestScanBadPrunePattern(t *testing.T) {
+	if _, err := Scan([]string{t.TempDir()}, false, []string{"["}); err == nil {
+		t.Error("bad prune pattern accepted")
+	}
+}
+
 func TestScanRootIsARepo(t *testing.T) {
 	requireGit(t)
 	setupGitEnv(t)

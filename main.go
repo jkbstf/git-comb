@@ -31,7 +31,7 @@ uncommitted changes, commits unreachable from any remote, and stashes.
     -o, --only SIGNS  look only for these sign classes (e.g. DUS)
     -j, --jobs N      probe N repositories in parallel (default %d)
         --hidden      descend into hidden directories
-        --prune NAME  skip directories named NAME (repeatable;
+        --prune GLOB  skip directories matching GLOB (repeatable;
                       node_modules is always skipped)
         --no-ignores  disregard comb.ignore and comb.ignoreBranch
         --color WHEN  color the output: auto, always, never

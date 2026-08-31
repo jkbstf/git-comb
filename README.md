@@ -96,7 +96,7 @@ column, the repository path, and the checked-out branch.
 | `-o, --only SIGNS` | look only for these sign classes, e.g. `-o DUS` |
 | `-j, --jobs N` | probe N repositories in parallel |
 | `--hidden` | descend into hidden directories |
-| `--prune NAME` | skip directories named NAME (repeatable) |
+| `--prune GLOB` | skip directories matching GLOB (repeatable) |
 | `--no-ignores` | disregard `comb.ignore` and `comb.ignoreBranch` |
 | `--color WHEN` | `auto` (default), `always`, or `never` |
 
@@ -129,7 +129,7 @@ rather than replacing it.
 
 | Key | Meaning |
 |---|---|
-| `comb.prune` (multi-valued) | directory names to skip, like `--prune` |
+| `comb.prune` (multi-valued) | directory-name globs to skip, like `--prune` |
 | `comb.jobs` | default probe parallelism |
 | `comb.hidden` | descend into hidden directories by default |
 | `comb.ignore` | acknowledge this repository entirely |
@@ -137,6 +137,7 @@ rather than replacing it.
 
 ```
 git config --global --add comb.prune _deps
+git config --global --add comb.prune 'build*'
 git config comb.ignore true
 git config --add comb.ignoreBranch 'backup/*'
 git config --global --add comb.ignoreBranch 'wip/*'
@@ -144,9 +145,9 @@ git config --global --add comb.ignoreBranch 'wip/*'
 
 `comb.ignore` and `comb.ignoreBranch` are read per repository with
 git's usual precedence, so a global value applies everywhere and a
-local one to a single clone. Globs match the branch name, and `*`
-does not cross `/`: `backup/*` matches `backup/a` but not
-`backup/a/b`.
+local one to a single clone. Branch globs and prune globs share one
+grammar: they match the branch or directory name, and `*` does not
+cross `/`, so `backup/*` matches `backup/a` but not `backup/a/b`.
 
 Acknowledged findings are never silently gone: the summary line
 counts them — `; acknowledged: 1 repository, 13 branches` — and
