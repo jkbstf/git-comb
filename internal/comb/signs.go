@@ -45,6 +45,22 @@ func ParseSignSet(s string) (SignSet, error) {
 // All reports whether every class is selected.
 func (s SignSet) All() bool { return s.set == "" }
 
+// Complement returns the classes not in s — how --except turns "hide
+// these" into a selection. Complementing the full set would select
+// nothing, which cannot be expressed and cannot be meant.
+func (s SignSet) Complement() (SignSet, error) {
+	if s.All() {
+		return SignSet{}, fmt.Errorf("excluding every sign would leave nothing to look for")
+	}
+	var b strings.Builder
+	for _, r := range signOrder {
+		if !strings.ContainsRune(s.set, r) {
+			b.WriteRune(r)
+		}
+	}
+	return SignSet{set: b.String()}, nil
+}
+
 // Has reports whether the class is selected.
 func (s SignSet) Has(sign byte) bool {
 	return s.set == "" || strings.IndexByte(s.set, sign) >= 0

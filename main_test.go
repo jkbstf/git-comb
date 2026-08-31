@@ -94,6 +94,30 @@ func TestRunOnlyFlagAccepted(t *testing.T) {
 	}
 }
 
+func TestRunExceptFlag(t *testing.T) {
+	isolateConfig(t)
+	var stdout, stderr bytes.Buffer
+	if code := run([]string{"-xAB", t.TempDir()}, &stdout, &stderr); code != 0 {
+		t.Errorf("exit = %d, want 0: %s", code, stderr.String())
+	}
+
+	stderr.Reset()
+	if code := run([]string{"--only", "D", "--except", "A", t.TempDir()}, &stdout, &stderr); code != 2 {
+		t.Errorf("exit = %d for --only with --except, want 2", code)
+	}
+	if !strings.Contains(stderr.String(), "not both") {
+		t.Errorf("stderr = %q", stderr.String())
+	}
+
+	stderr.Reset()
+	if code := run([]string{"--except", "DUABSELO", t.TempDir()}, &stdout, &stderr); code != 2 {
+		t.Errorf("exit = %d for excluding everything, want 2", code)
+	}
+	if !strings.Contains(stderr.String(), "nothing to look for") {
+		t.Errorf("stderr = %q", stderr.String())
+	}
+}
+
 func TestRunRejectsBadColor(t *testing.T) {
 	var stdout, stderr bytes.Buffer
 	if code := run([]string{"--color", "sometimes"}, &stdout, &stderr); code != 2 {
@@ -194,6 +218,7 @@ func TestExpandShortFlags(t *testing.T) {
 		{"attached jobs value", []string{"-j4"}, []string{"-j", "4"}},
 		{"attached multi-digit", []string{"-j16"}, []string{"-j", "16"}},
 		{"attached only value", []string{"-oDUS"}, []string{"-o", "DUS"}},
+		{"attached except value", []string{"-xAB"}, []string{"-x", "AB"}},
 		{"attached lowercase only", []string{"-odus"}, []string{"-o", "dus"}},
 		{"plain short untouched", []string{"-v"}, []string{"-v"}},
 		{"bare value short untouched", []string{"-o"}, []string{"-o"}},

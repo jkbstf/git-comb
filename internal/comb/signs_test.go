@@ -63,6 +63,24 @@ func TestSignSetHasAndFilter(t *testing.T) {
 		t.Errorf("Filter(UAB) = %q, want empty", got)
 	}
 
+	if _, err := (SignSet{}).Complement(); err == nil {
+		t.Error("complement of the full set accepted")
+	}
+	hidden, err := ParseSignSet("AB")
+	if err != nil {
+		t.Fatal(err)
+	}
+	rest, err := hidden.Complement()
+	if err != nil {
+		t.Fatalf("Complement: %v", err)
+	}
+	if got, want := rest.String(), "DUSELO"; got != want {
+		t.Errorf("Complement = %q, want %q", got, want)
+	}
+	if rest.Has('A') || !rest.Has('D') {
+		t.Error("Complement membership wrong")
+	}
+
 	full, err := ParseSignSet("DUABSELO")
 	if err != nil {
 		t.Fatal(err)

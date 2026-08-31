@@ -94,6 +94,7 @@ column, the repository path, and the checked-out branch.
 | `-v, --verbose` | list the branches that hold unpushed commits |
 | `-a, --all` | print clean repositories too |
 | `-o, --only SIGNS` | look only for these sign classes, e.g. `-o DUS` |
+| `-x, --except SIGNS` | look for everything but these classes, e.g. `-x AB` |
 | `-j, --jobs N` | probe N repositories in parallel |
 | `--hidden` | descend into hidden directories |
 | `--prune GLOB` | skip directories matching GLOB (repeatable) |
@@ -113,9 +114,11 @@ Every sign is the initial of a single word:
 | `L` | **local** — no remote configured; the repository exists only here |
 | `O` | **offline** — a remote could not be reached (with `--fetch`) |
 
-The signs divide into loss risk — `D`, `U`, `S`, `E`, `N`, work that
+The signs divide into loss risk — `D`, `U`, `S`, `E`, `L`, work that
 exists nowhere else — and sync hygiene (`A`, `B`). `--only DUS` runs
-a pure loss audit: classes you did not ask for are neither probed nor
+a pure loss audit; `--except AB` says the same thing by naming the
+noise instead, which is often easier. The two are alternatives, not
+combinable. Classes you did not ask for are neither probed nor
 printed, which also makes a narrow scan faster, and the exit status
 follows what you asked for. Probe failures are always reported.
 

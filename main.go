@@ -28,6 +28,7 @@ uncommitted changes, commits unreachable from any remote, and stashes.
     -v, --verbose     list the branches that hold unpushed commits
     -a, --all         print clean repositories too
     -o, --only SIGNS  look only for these sign classes (e.g. DUS)
+    -x, --except SIGNS  look for everything but these classes (e.g. AB)
     -j, --jobs N      probe N repositories in parallel (default %d)
         --fetch       fetch all remotes first, so behind is current
         --hidden      descend into hidden directories
@@ -60,6 +61,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 		opts        comb.Options
 		colorWhen   string
 		onlySigns   string
+		exceptSigns string
 		showVersion bool
 	)
 
@@ -77,6 +79,8 @@ func run(args []string, stdout, stderr io.Writer) int {
 	fs.Var(&opts.Prune, "prune", "")
 	fs.StringVar(&onlySigns, "only", "", "")
 	fs.StringVar(&onlySigns, "o", "", "")
+	fs.StringVar(&exceptSigns, "except", "", "")
+	fs.StringVar(&exceptSigns, "x", "", "")
 	fs.BoolVar(&opts.NoIgnores, "no-ignores", false, "")
 	fs.StringVar(&colorWhen, "color", "auto", "")
 	fs.BoolVar(&showVersion, "version", false, "")
@@ -102,10 +106,26 @@ func run(args []string, stdout, stderr io.Writer) int {
 		return 2
 	}
 
+	if onlySigns != "" && exceptSigns != "" {
+		fmt.Fprintln(stderr, "git-comb: use --only or --except, not both")
+		return 2
+	}
 	if onlySigns != "" {
 		opts.Only, err = comb.ParseSignSet(onlySigns)
 		if err != nil {
 			fmt.Fprintf(stderr, "git-comb: --only: %v\n", err)
+			return 2
+		}
+	}
+	if exceptSigns != "" {
+		hidden, err := comb.ParseSignSet(exceptSigns)
+		if err != nil {
+			fmt.Fprintf(stderr, "git-comb: --except: %v\n", err)
+			return 2
+		}
+		opts.Only, err = hidden.Complement()
+		if err != nil {
+			fmt.Fprintf(stderr, "git-comb: --except: %v\n", err)
 			return 2
 		}
 	}
@@ -200,7 +220,7 @@ func parseArgs(fs *flag.FlagSet, args []string) ([]string, error) {
 func expandShortFlags(args []string) []string {
 	const (
 		boolShorts  = "va"
-		valueShorts = "jo"
+		valueShorts = "jox"
 	)
 	out := make([]string, 0, len(args))
 	for _, a := range args {

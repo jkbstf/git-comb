@@ -251,6 +251,26 @@ func TestE2EOnlyFiltersProcessWide(t *testing.T) {
 	}
 }
 
+func TestE2EExceptHidesTheNoise(t *testing.T) {
+	requireBinary(t)
+	e2eEnv(t)
+	base := buildKitchen(t)
+
+	res := runBinary(t, "-xL", base)
+	if res.code != 1 {
+		t.Fatalf("exit = %d, want 1", res.code)
+	}
+	if strings.Contains(res.stdout, filepath.Join(base, "norem")) {
+		t.Errorf("excluded L row still rendered:\n%s", res.stdout)
+	}
+	if !strings.Contains(res.stdout, filepath.Join(base, "dirty")) {
+		t.Errorf("unexcluded rows missing:\n%s", res.stdout)
+	}
+	if !strings.Contains(res.stderr, "3 need attention") {
+		t.Errorf("stderr: %q", res.stderr)
+	}
+}
+
 func TestE2ECleanTreeExitsZero(t *testing.T) {
 	requireBinary(t)
 	e2eEnv(t)
