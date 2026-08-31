@@ -25,11 +25,11 @@ Comb every Git repository under the given directories (default: the
 current directory) and report work that exists only on this machine:
 uncommitted changes, commits unreachable from any remote, and stashes.
 
-    -f, --fetch       fetch all remotes first, so behind is current
     -v, --verbose     list the branches that hold unpushed commits
     -a, --all         print clean repositories too
     -o, --only SIGNS  look only for these sign classes (e.g. DUS)
     -j, --jobs N      probe N repositories in parallel (default %d)
+        --fetch       fetch all remotes first, so behind is current
         --hidden      descend into hidden directories
         --prune GLOB  skip directories matching GLOB (repeatable;
                       node_modules is always skipped)
@@ -67,7 +67,6 @@ func run(args []string, stdout, stderr io.Writer) int {
 	fs.SetOutput(io.Discard)
 	fs.Usage = func() {}
 	fs.BoolVar(&opts.Fetch, "fetch", false, "")
-	fs.BoolVar(&opts.Fetch, "f", false, "")
 	fs.BoolVar(&opts.Verbose, "verbose", false, "")
 	fs.BoolVar(&opts.Verbose, "v", false, "")
 	fs.BoolVar(&opts.All, "all", false, "")
@@ -193,14 +192,14 @@ func parseArgs(fs *flag.FlagSet, args []string) ([]string, error) {
 	return append(roots, tail...), nil
 }
 
-// expandShortFlags rewrites "-fv" into "-f -v" and attached values
+// expandShortFlags rewrites "-va" into "-v -a" and attached values
 // like "-j4" or "-oDUS" into "-j 4" and "-o DUS", which the standard
 // flag package does not do on its own. Following getopt convention,
 // the leftmost letter decides: a value-taking short consumes the rest
 // of the token as its argument.
 func expandShortFlags(args []string) []string {
 	const (
-		boolShorts  = "fva"
+		boolShorts  = "va"
 		valueShorts = "jo"
 	)
 	out := make([]string, 0, len(args))

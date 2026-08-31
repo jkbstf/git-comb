@@ -90,7 +90,7 @@ column, the repository path, and the checked-out branch.
 
 | Option | Effect |
 |---|---|
-| `-f, --fetch` | fetch all remotes first, so behind is current |
+| `--fetch` | fetch all remotes first, so behind is current |
 | `-v, --verbose` | list the branches that hold unpushed commits |
 | `-a, --all` | print clean repositories too |
 | `-o, --only SIGNS` | look only for these sign classes, e.g. `-o DUS` |

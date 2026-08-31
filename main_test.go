@@ -189,13 +189,13 @@ func TestExpandShortFlags(t *testing.T) {
 		in   []string
 		want []string
 	}{
-		{"combined booleans", []string{"-fv"}, []string{"-f", "-v"}},
-		{"triple", []string{"-fva"}, []string{"-f", "-v", "-a"}},
+		{"combined booleans", []string{"-va"}, []string{"-v", "-a"}},
+		{"retired fetch short left for the parser", []string{"-fva"}, []string{"-fva"}},
 		{"attached jobs value", []string{"-j4"}, []string{"-j", "4"}},
 		{"attached multi-digit", []string{"-j16"}, []string{"-j", "16"}},
 		{"attached only value", []string{"-oDUS"}, []string{"-o", "DUS"}},
 		{"attached lowercase only", []string{"-odus"}, []string{"-o", "dus"}},
-		{"plain short untouched", []string{"-f"}, []string{"-f"}},
+		{"plain short untouched", []string{"-v"}, []string{"-v"}},
 		{"bare value short untouched", []string{"-o"}, []string{"-o"}},
 		{"long flags untouched", []string{"--fetch"}, []string{"--fetch"}},
 		{"unknown combo left for the parser", []string{"-fx"}, []string{"-fx"}},
