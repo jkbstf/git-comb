@@ -52,6 +52,52 @@ runs any executable named `git-comb` as `git comb`.
 
 Requires git 2.31 or newer on `PATH`.
 
+### Shell completion
+
+Release archives include completion scripts for Bash, Zsh, and Fish in
+the `completions` directory. Each script completes both `git comb` and
+the direct `git-comb` spelling. Long, descriptive options are suggested
+before their compact sign shorthand, and options such as `--color`,
+`--jobs`, `--only`, and `--except` complete their accepted values.
+
+For Bash, source Git's own completion first (most package-manager Git
+installations already do this), then source the git-comb script from
+`.bashrc`:
+
+```bash
+source /path/to/completions/git-comb-completion.bash
+```
+
+For Zsh, source the script after `compinit` from `.zshrc`:
+
+```zsh
+autoload -Uz compinit && compinit
+source /path/to/completions/git-comb-completion.zsh
+```
+
+For Fish, copy or link the script into `conf.d` so it is loaded for
+both command spellings:
+
+```fish
+ln -s /path/to/completions/git-comb.fish ~/.config/fish/conf.d/git-comb.fish
+```
+
+When installed with `go install`, obtain the scripts from the matching
+release archive or from `contrib/completion` in the source tree.
+
+The `git comb` spelling extends Git's own shell completion, so Git completion
+must already be active. If direct `git-comb` completion works but `git comb`
+does not, check the integration functions in the same shell session:
+
+```bash
+complete -p git
+declare -F _git_comb
+```
+
+```zsh
+whence -w _git _git_comb _git-comb
+```
+
 ## Running from source
 
 ```
