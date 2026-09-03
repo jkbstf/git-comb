@@ -71,6 +71,14 @@ _git_comb_options ()
 		'--only-empty:look only for empty repositories'
 		'--only-local:look only for repositories without remotes'
 		'--only-offline:look only for remotes unreachable during --fetch'
+		'--exclude-dirty:exclude repositories with uncommitted changes'
+		'--exclude-unpushed:exclude commits that exist on no remote'
+		'--exclude-ahead:exclude branches ahead of their upstream'
+		'--exclude-behind:exclude branches behind their upstream'
+		'--exclude-stashed:exclude repositories with stashes'
+		'--exclude-empty:exclude empty repositories'
+		'--exclude-local:exclude repositories without remotes'
+		'--exclude-offline:exclude remotes unreachable during --fetch'
 		'--only:combine sign classes using compact initials'
 		'--except:exclude sign classes using compact initials'
 		'--jobs:set repository probe parallelism'
@@ -174,6 +182,14 @@ _git_comb_direct ()
 		'--only-empty[look only for empty repositories]' \
 		'--only-local[look only for repositories without remotes]' \
 		'--only-offline[look only for remotes unreachable during --fetch]' \
+		'--exclude-dirty[exclude repositories with uncommitted changes]' \
+		'--exclude-unpushed[exclude commits that exist on no remote]' \
+		'--exclude-ahead[exclude branches ahead of their upstream]' \
+		'--exclude-behind[exclude branches behind their upstream]' \
+		'--exclude-stashed[exclude repositories with stashes]' \
+		'--exclude-empty[exclude empty repositories]' \
+		'--exclude-local[exclude repositories without remotes]' \
+		'--exclude-offline[exclude remotes unreachable during --fetch]' \
 		'(-o --only)'{-o,--only}'[combine sign classes using compact initials]:signs:_git_comb_signs' \
 		'(-x --except)'{-x,--except}'[exclude sign classes using compact initials]:signs:_git_comb_signs' \
 		'(-j --jobs)'{-j,--jobs}'[set repository probe parallelism]:jobs:(1 2 4 8 16)' \

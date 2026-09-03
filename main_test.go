@@ -57,7 +57,7 @@ func TestRunHelp(t *testing.T) {
 	if code := run([]string{"--help"}, &stdout, &stderr); code != 0 {
 		t.Errorf("exit = %d, want 0", code)
 	}
-	for _, want := range []string{"Usage: git comb", "--short", "--only-dirty", "--fetch", "Exit status"} {
+	for _, want := range []string{"Usage: git comb", "--short", "--only-dirty", "--exclude-dirty", "--fetch", "Exit status"} {
 		if !strings.Contains(stdout.String(), want) {
 			t.Errorf("help output missing %q", want)
 		}
@@ -115,6 +115,23 @@ func TestRunNamedOnlyFlagsCompose(t *testing.T) {
 	want := "checking only uncommitted changes, unpushed commits, and branches ahead of upstream"
 	if !strings.Contains(stderr.String(), want) {
 		t.Errorf("stderr = %q, want descriptive combined scope", stderr.String())
+	}
+}
+
+func TestRunNamedExcludeFlagsCompose(t *testing.T) {
+	isolateConfig(t)
+	base := t.TempDir()
+	gitInit(t, filepath.Join(base, "repo")) // a fresh repo reads EL
+	var stdout, stderr bytes.Buffer
+	args := []string{"--only-empty", "--only-local", "--exclude-local", base}
+	if code := run(args, &stdout, &stderr); code != 1 {
+		t.Fatalf("exit = %d, want 1: %s", code, stderr.String())
+	}
+	if !strings.Contains(stdout.String(), "Empty repositories:") || strings.Contains(stdout.String(), "No remotes:") {
+		t.Errorf("named exclusion not applied: %q", stdout.String())
+	}
+	if !strings.Contains(stderr.String(), "checking only empty repositories") {
+		t.Errorf("stderr = %q, want effective selection disclosed", stderr.String())
 	}
 }
 
@@ -217,6 +234,37 @@ func TestRunNamedOnlyFiltersFromConfig(t *testing.T) {
 	}
 	if stdout.Len() != 0 || !strings.Contains(stderr.String(), "checking only uncommitted changes") {
 		t.Errorf("command-line only filter did not replace config: stdout=%q stderr=%q", stdout.String(), stderr.String())
+	}
+}
+
+func TestRunNamedExcludeFiltersFromConfig(t *testing.T) {
+	cfg := isolateConfig(t)
+	base := t.TempDir()
+	gitInit(t, filepath.Join(base, "repo")) // a fresh repo reads EL
+
+	content := "[comb]\n\texcludeEmpty = true\n\texcludeLocal = true\n"
+	if err := os.WriteFile(cfg, []byte(content), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	var stdout, stderr bytes.Buffer
+	if code := run([]string{base}, &stdout, &stderr); code != 0 {
+		t.Fatalf("exit = %d, want 0: %s", code, stderr.String())
+	}
+	if stdout.Len() != 0 || !strings.Contains(stderr.String(), "checking only uncommitted changes, unpushed commits, branches ahead of upstream, branches behind upstream, stashes, and unreachable remotes") {
+		t.Errorf("configured exclusions not applied: stdout=%q stderr=%q", stdout.String(), stderr.String())
+	}
+
+	// Any command-line exclude filter replaces the configured exclude
+	// selection as a unit, matching the named only-filter precedence.
+	stdout.Reset()
+	stderr.Reset()
+	if code := run([]string{"--exclude-dirty", base}, &stdout, &stderr); code != 1 {
+		t.Fatalf("exit = %d, want 1: %s", code, stderr.String())
+	}
+	for _, want := range []string{"Empty repositories:", "No remotes:"} {
+		if !strings.Contains(stdout.String(), want) {
+			t.Errorf("command-line exclusion did not replace config; missing %q: %q", want, stdout.String())
+		}
 	}
 }
 
@@ -379,8 +427,8 @@ func TestSelectedStatesUsesWordsInsteadOfSigns(t *testing.T) {
 	}
 }
 
-func TestNamedOnlyFlagsCoverEveryState(t *testing.T) {
-	flags := namedOnlyFlags{
+func TestNamedFilterFlagsCoverEveryState(t *testing.T) {
+	flags := namedFilterFlags{
 		Dirty: true, Unpushed: true, Ahead: true, Behind: true,
 		Stashed: true, Empty: true, Local: true, Offline: true,
 	}

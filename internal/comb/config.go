@@ -7,16 +7,17 @@ import (
 )
 
 // Settings are the scan-level defaults read from git config at
-// startup. OnlyNamed contains the canonical signs selected through
-// the descriptive comb.only* boolean keys; Only keeps the advanced
-// compact setting for backward compatibility.
+// startup. OnlyNamed and ExcludeNamed contain the canonical signs
+// selected through descriptive boolean keys; Only and Except keep
+// the advanced compact settings for backward compatibility.
 type Settings struct {
-	Prune     []string
-	Jobs      int
-	Hidden    bool
-	Only      string
-	OnlyNamed string
-	Except    string
+	Prune        []string
+	Jobs         int
+	Hidden       bool
+	Only         string
+	OnlyNamed    string
+	Except       string
+	ExcludeNamed string
 }
 
 var namedOnlyConfigKeys = map[string]byte{
@@ -30,6 +31,17 @@ var namedOnlyConfigKeys = map[string]byte{
 	"comb.onlyoffline":  'O',
 }
 
+var namedExcludeConfigKeys = map[string]byte{
+	"comb.excludedirty":    'D',
+	"comb.excludeunpushed": 'U',
+	"comb.excludeahead":    'A',
+	"comb.excludebehind":   'B',
+	"comb.excludestashed":  'S',
+	"comb.excludeempty":    'E',
+	"comb.excludelocal":    'L',
+	"comb.excludeoffline":  'O',
+}
+
 // LoadSettings reads comb.* scan defaults from the merged git config
 // visible from dir — global and system config everywhere, plus the
 // local config when dir sits inside a repository.
@@ -40,6 +52,7 @@ func LoadSettings(dir string) (Settings, error) {
 	}
 	var s Settings
 	namedOnly := map[byte]bool{}
+	namedExclude := map[byte]bool{}
 	for _, e := range entries {
 		if sign, ok := namedOnlyConfigKeys[e.key]; ok {
 			b, err := gitBool(e.value)
@@ -47,6 +60,14 @@ func LoadSettings(dir string) (Settings, error) {
 				return Settings{}, fmt.Errorf("%s: %w", e.key, err)
 			}
 			namedOnly[sign] = b
+			continue
+		}
+		if sign, ok := namedExcludeConfigKeys[e.key]; ok {
+			b, err := gitBool(e.value)
+			if err != nil {
+				return Settings{}, fmt.Errorf("%s: %w", e.key, err)
+			}
+			namedExclude[sign] = b
 			continue
 		}
 		switch e.key {
@@ -70,14 +91,19 @@ func LoadSettings(dir string) (Settings, error) {
 			s.Except = e.value
 		}
 	}
-	var named strings.Builder
+	s.OnlyNamed = configuredSigns(namedOnly)
+	s.ExcludeNamed = configuredSigns(namedExclude)
+	return s, nil
+}
+
+func configuredSigns(selected map[byte]bool) string {
+	var signs strings.Builder
 	for i := 0; i < len(signOrder); i++ {
-		if namedOnly[signOrder[i]] {
-			named.WriteByte(signOrder[i])
+		if selected[signOrder[i]] {
+			signs.WriteByte(signOrder[i])
 		}
 	}
-	s.OnlyNamed = named.String()
-	return s, nil
+	return signs.String()
 }
 
 // repoIgnores reads a repository's acknowledgment config: comb.ignore

@@ -4,7 +4,7 @@
 # extension point Git uses for external subcommands, while the registration at
 # the bottom also completes the git-comb executable directly.
 
-__git_comb_options='--short --all --only-dirty --only-unpushed --only-ahead --only-behind --only-stashed --only-empty --only-local --only-offline --only --except --jobs --fetch --hidden --prune --no-ignores --color --version --help'
+__git_comb_options='--short --all --only-dirty --only-unpushed --only-ahead --only-behind --only-stashed --only-empty --only-local --only-offline --exclude-dirty --exclude-unpushed --exclude-ahead --exclude-behind --exclude-stashed --exclude-empty --exclude-local --exclude-offline --only --except --jobs --fetch --hidden --prune --no-ignores --color --version --help'
 
 __git_comb_words ()
 {

@@ -54,49 +54,31 @@ Requires git 2.31 or newer on `PATH`.
 
 ### Shell completion
 
-Release archives include completion scripts for Bash, Zsh, and Fish in
-the `completions` directory. Each script completes both `git comb` and
-the direct `git-comb` spelling. Long, descriptive options are suggested
-before their compact sign shorthand, and options such as `--color`,
-`--jobs`, `--only`, and `--except` complete their accepted values.
+The scripts under `contrib/completion` complete both `git comb` and
+`git-comb`. For a local checkout, add the matching setup to your shell
+configuration, using the checkout's absolute path.
 
-For Bash, source Git's own completion first (most package-manager Git
-installations already do this), then source the git-comb script from
-`.bashrc`:
+Bash (`.bashrc`; Git completion must already be active):
 
 ```bash
-source /path/to/completions/git-comb-completion.bash
+source /path/to/git-comb/contrib/completion/git-comb-completion.bash
 ```
 
-For Zsh, source the script after `compinit` from `.zshrc`:
+Zsh (`.zshrc`):
 
 ```zsh
 autoload -Uz compinit && compinit
-source /path/to/completions/git-comb-completion.zsh
+source /path/to/git-comb/contrib/completion/git-comb-completion.zsh
 ```
 
-For Fish, copy or link the script into `conf.d` so it is loaded for
-both command spellings:
+Fish (`~/.config/fish/config.fish`):
 
 ```fish
-ln -s /path/to/completions/git-comb.fish ~/.config/fish/conf.d/git-comb.fish
+source /path/to/git-comb/contrib/completion/git-comb.fish
 ```
 
-When installed with `go install`, obtain the scripts from the matching
-release archive or from `contrib/completion` in the source tree.
-
-The `git comb` spelling extends Git's own shell completion, so Git completion
-must already be active. If direct `git-comb` completion works but `git comb`
-does not, check the integration functions in the same shell session:
-
-```bash
-complete -p git
-declare -F _git_comb
-```
-
-```zsh
-whence -w _git _git_comb _git-comb
-```
+Restart the shell after saving the change. Release archives contain the same
+scripts in their `completions` directory.
 
 ## Running from source
 
@@ -171,6 +153,14 @@ visible.
 | `--only-empty` | look only for empty repositories |
 | `--only-local` | look only for repositories without remotes |
 | `--only-offline` | look only for remotes unreachable during `--fetch` |
+| `--exclude-dirty` | exclude repositories with uncommitted changes |
+| `--exclude-unpushed` | exclude commits that exist on no remote |
+| `--exclude-ahead` | exclude branches ahead of their upstream |
+| `--exclude-behind` | exclude branches behind their upstream |
+| `--exclude-stashed` | exclude repositories with stashes |
+| `--exclude-empty` | exclude empty repositories |
+| `--exclude-local` | exclude repositories without remotes |
+| `--exclude-offline` | exclude remotes unreachable during `--fetch` |
 | `-o, --only SIGNS` | advanced shorthand for combining sign classes, e.g. `-oDUS` |
 | `-x, --except SIGNS` | exclude sign classes, e.g. `-xAB` |
 | `-j, --jobs N` | probe N repositories in parallel |
@@ -186,12 +176,19 @@ uncommitted changes, unpushed commits, and branches ahead of upstream:
 git comb --only-dirty --only-unpushed --only-ahead ~/Projects
 ```
 
-When a command-line `--only-*` flag is present, the command-line only
-selection replaces any configured only selection as a unit. `--except`
-then subtracts from it. Classes you did not ask for are neither probed
-nor printed, which also makes a narrow scan faster, and the exit status
-follows what you asked for. Whenever the selection is narrowed by a
-flag or by config, the summary uses full state names to disclose it:
+The matching `--exclude-*` flags also combine. This checks every state except
+ahead and behind:
+
+```
+git comb --exclude-ahead --exclude-behind ~/Projects
+```
+
+Any command-line only filter replaces the configured only selection as a
+unit. Any command-line exclude filter or `--except` likewise replaces the
+configured exclusion selection; exclusions are then subtracted from the only
+selection. Unselected classes are neither probed nor printed, which also makes
+a narrow scan faster, and the exit status follows the resolved selection.
+Whenever the selection is narrowed, the summary uses full state names:
 
 ```
 combed 25 repositories, checking only uncommitted changes, unpushed commits, and branches ahead of upstream: 3 need attention
@@ -240,8 +237,9 @@ Every sign is the initial of a single word:
 The signs divide into loss risk (`D`, `U`, `S`, `E`, `L`: work that
 exists nowhere else) and sync hygiene (`A`, `B`). The concise
 `-oDUS` is equivalent to `--only-dirty --only-unpushed
---only-stashed`; `-xAB` names states to exclude. The two forms can be
-combined, and a selection that ends empty simply finds nothing.
+--only-stashed`; `-xAB` is equivalent to `--exclude-ahead
+--exclude-behind`. The forms can be combined, and a selection that ends empty
+simply finds nothing.
 
 Exit status is 0 when everything is clean, 1 when something needs
 attention, and 2 on errors, so the command slots directly into
@@ -251,11 +249,10 @@ scripts and shell prompts.
 
 Settings live in git config; there is no extra file, and they travel with
 your dotfiles. `--prune` adds to `comb.prune` rather than replacing
-it. The named `comb.only*` booleans combine into the configured only
-selection; compact `comb.only` can add sign classes for advanced use.
-Any command-line only filter replaces that configured selection, and
-the resolved `--except` or `comb.except` selection then subtracts from
-it.
+it. The named `comb.only*` and `comb.exclude*` booleans build the configured
+only and exclusion selections; compact `comb.only` and `comb.except` add sign
+classes for advanced use. Command-line filters replace the configured
+selection in their respective family, and exclusions are applied last.
 
 | Key | Meaning |
 |---|---|
@@ -270,6 +267,14 @@ it.
 | `comb.onlyEmpty` | include empty repositories |
 | `comb.onlyLocal` | include repositories without remotes |
 | `comb.onlyOffline` | include remotes unreachable during `--fetch` |
+| `comb.excludeDirty` | exclude repositories with uncommitted changes |
+| `comb.excludeUnpushed` | exclude commits that exist on no remote |
+| `comb.excludeAhead` | exclude branches ahead of their upstream |
+| `comb.excludeBehind` | exclude branches behind their upstream |
+| `comb.excludeStashed` | exclude repositories with stashes |
+| `comb.excludeEmpty` | exclude empty repositories |
+| `comb.excludeLocal` | exclude repositories without remotes |
+| `comb.excludeOffline` | exclude remotes unreachable during `--fetch` |
 | `comb.only` | advanced compact sign selection, like `--only` |
 | `comb.except` | standing sign exclusion, like `--except` |
 | `comb.ignore` | acknowledge this repository entirely |
@@ -281,6 +286,8 @@ git config --global --add comb.prune 'build*'
 git config --global comb.onlyDirty true
 git config --global comb.onlyUnpushed true
 git config --global comb.onlyStashed true
+git config --global comb.excludeAhead true
+git config --global comb.excludeBehind true
 git config comb.ignore true
 git config --add comb.ignoreBranch 'backup/*'
 git config --global --add comb.ignoreBranch 'wip/*'

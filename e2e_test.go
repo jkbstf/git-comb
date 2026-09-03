@@ -302,6 +302,26 @@ func TestE2EExceptHidesTheNoise(t *testing.T) {
 	}
 }
 
+func TestE2ENamedExcludeWorksProcessWide(t *testing.T) {
+	requireBinary(t)
+	e2eEnv(t)
+	base := buildKitchen(t)
+
+	res := runBinary(t, "--exclude-local", base)
+	if res.code != 1 {
+		t.Fatalf("exit = %d, want 1", res.code)
+	}
+	if strings.Contains(res.stdout, "  norem\n") {
+		t.Errorf("excluded local-only row still rendered:\n%s", res.stdout)
+	}
+	if !strings.Contains(res.stdout, "  dirty  [master]") {
+		t.Errorf("unexcluded rows missing:\n%s", res.stdout)
+	}
+	if !strings.Contains(res.stderr, "3 need attention") {
+		t.Errorf("stderr: %q", res.stderr)
+	}
+}
+
 func TestE2ECleanTreeExitsZero(t *testing.T) {
 	requireBinary(t)
 	e2eEnv(t)

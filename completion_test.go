@@ -18,8 +18,10 @@ func TestCompletionScriptsCoverEveryLongOption(t *testing.T) {
 	options := []string{
 		"short", "all", "only-dirty", "only-unpushed", "only-ahead",
 		"only-behind", "only-stashed", "only-empty", "only-local",
-		"only-offline", "only", "except", "jobs", "fetch", "hidden",
-		"prune", "no-ignores", "color", "version", "help",
+		"only-offline", "exclude-dirty", "exclude-unpushed", "exclude-ahead",
+		"exclude-behind", "exclude-stashed", "exclude-empty", "exclude-local",
+		"exclude-offline", "only", "except", "jobs", "fetch", "hidden", "prune",
+		"no-ignores", "color", "version", "help",
 	}
 	for _, path := range paths {
 		content, err := os.ReadFile(path)
@@ -90,6 +92,13 @@ func TestBashCompletionBehavior(t *testing.T) {
 			cword:  "1",
 			want:   []string{"--only-unpushed"},
 			reject: []string{"-o"},
+		},
+		{
+			name:   "descriptive exclusions",
+			words:  "git-comb --exclude-u",
+			cword:  "1",
+			want:   []string{"--exclude-unpushed"},
+			reject: []string{"-x"},
 		},
 		{
 			name:  "color values",

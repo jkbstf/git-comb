@@ -36,6 +36,14 @@ unreachable from any remote, stashes, and ahead/behind branches.
         --only-empty     look only for empty repositories
         --only-local     look only for repositories without remotes
         --only-offline   look only for remotes unreachable during --fetch
+        --exclude-dirty   exclude repositories with uncommitted changes
+        --exclude-unpushed exclude commits that exist on no remote
+        --exclude-ahead   exclude branches ahead of their upstream
+        --exclude-behind  exclude branches behind their upstream
+        --exclude-stashed exclude repositories with stashes
+        --exclude-empty   exclude empty repositories
+        --exclude-local   exclude repositories without remotes
+        --exclude-offline exclude remotes unreachable during --fetch
     -o, --only SIGNS     advanced shorthand for combining sign classes
     -x, --except SIGNS   exclude sign classes (e.g. AB)
     -j, --jobs N         probe N repositories in parallel (default %d)
@@ -53,11 +61,11 @@ Signs: D dirty  U unpushed  A ahead  B behind  S stashed
        E empty  L local  O offline
 
 Defaults come from git config (comb.prune, comb.jobs, comb.hidden,
-comb.onlyDirty and the other named filters, comb.only, comb.except);
-comb.ignore and comb.ignoreBranch acknowledge repositories and branches
-per clone or globally. Command-line only filters replace configured only
-filters; named filters combine, except then subtracts, and the summary
-discloses acknowledgments and any narrowed selection.
+comb.onlyDirty, comb.excludeDirty, the other named filters, comb.only,
+comb.except); comb.ignore and comb.ignoreBranch acknowledge repositories
+and branches per clone or globally. Command-line only and exclude filters
+replace their configured family; named filters combine, exclusions then
+subtract, and the summary discloses acknowledgments and narrowed selections.
 
 Exit status: 0 all clean, 1 findings, 2 errors.
 `
@@ -70,13 +78,14 @@ func main() {
 // drive it with their own streams and read the exit code.
 func run(args []string, stdout, stderr io.Writer) int {
 	var (
-		opts        comb.Options
-		short       bool
-		colorWhen   string
-		onlySigns   string
-		exceptSigns string
-		onlyNamed   namedOnlyFlags
-		showVersion bool
+		opts         comb.Options
+		short        bool
+		colorWhen    string
+		onlySigns    string
+		exceptSigns  string
+		onlyNamed    namedFilterFlags
+		excludeNamed namedFilterFlags
+		showVersion  bool
 	)
 
 	fs := flag.NewFlagSet("git-comb", flag.ContinueOnError)
@@ -103,6 +112,14 @@ func run(args []string, stdout, stderr io.Writer) int {
 	fs.BoolVar(&onlyNamed.Empty, "only-empty", false, "")
 	fs.BoolVar(&onlyNamed.Local, "only-local", false, "")
 	fs.BoolVar(&onlyNamed.Offline, "only-offline", false, "")
+	fs.BoolVar(&excludeNamed.Dirty, "exclude-dirty", false, "")
+	fs.BoolVar(&excludeNamed.Unpushed, "exclude-unpushed", false, "")
+	fs.BoolVar(&excludeNamed.Ahead, "exclude-ahead", false, "")
+	fs.BoolVar(&excludeNamed.Behind, "exclude-behind", false, "")
+	fs.BoolVar(&excludeNamed.Stashed, "exclude-stashed", false, "")
+	fs.BoolVar(&excludeNamed.Empty, "exclude-empty", false, "")
+	fs.BoolVar(&excludeNamed.Local, "exclude-local", false, "")
+	fs.BoolVar(&excludeNamed.Offline, "exclude-offline", false, "")
 	fs.BoolVar(&opts.NoIgnores, "no-ignores", false, "")
 	fs.StringVar(&colorWhen, "color", "auto", "")
 	fs.BoolVar(&showVersion, "version", false, "")
@@ -157,8 +174,9 @@ func run(args []string, stdout, stderr io.Writer) int {
 
 	// Named only filters combine with each other and with the compact
 	// --only shorthand. Any command-line only filter replaces the
-	// configured only selection as a unit; except then subtracts from
-	// it. An empty result finds nothing.
+	// configured only selection as a unit. Named exclude filters follow
+	// the same rule for configured exclusions; exclusions then subtract.
+	// An empty result finds nothing.
 	cliOnly := onlySigns + onlyNamed.signs()
 	onlySrc, onlyStr := "--only", cliOnly
 	if cliOnly == "" {
@@ -171,9 +189,10 @@ func run(args []string, stdout, stderr io.Writer) int {
 			return 2
 		}
 	}
-	exceptSrc, exceptStr := "--except", exceptSigns
-	if exceptStr == "" {
-		exceptSrc, exceptStr = "comb.except", settings.Except
+	cliExclude := exceptSigns + excludeNamed.signs()
+	exceptSrc, exceptStr := "--except", cliExclude
+	if cliExclude == "" {
+		exceptSrc, exceptStr = "comb.except", settings.Except+settings.ExcludeNamed
 	}
 	if exceptStr != "" {
 		hidden, err := comb.ParseSignSet(exceptStr)
@@ -338,12 +357,12 @@ func summary(repos, attention, failed, ackedRepos, ackedBranches int, selection 
 	return s
 }
 
-type namedOnlyFlags struct {
+type namedFilterFlags struct {
 	Dirty, Unpushed, Ahead, Behind bool
 	Stashed, Empty, Local, Offline bool
 }
 
-func (o namedOnlyFlags) signs() string {
+func (o namedFilterFlags) signs() string {
 	var b strings.Builder
 	for _, item := range []struct {
 		on   bool
