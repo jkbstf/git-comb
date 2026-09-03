@@ -20,19 +20,6 @@ func TestParseStatus(t *testing.T) {
 			},
 		},
 		{
-			name: "ahead and behind",
-			out: "# branch.oid 4a3b2c1d4a3b2c1d4a3b2c1d4a3b2c1d4a3b2c1d\n" +
-				"# branch.head master\n" +
-				"# branch.upstream origin/master\n" +
-				"# branch.ab +3 -2\n",
-			want: worktreeStatus{
-				Branch: "master",
-				OID:    "4a3b2c1d4a3b2c1d4a3b2c1d4a3b2c1d4a3b2c1d",
-				Ahead:  3,
-				Behind: 2,
-			},
-		},
-		{
 			name: "no upstream omits the ab line",
 			out: "# branch.oid 4a3b2c1d4a3b2c1d4a3b2c1d4a3b2c1d4a3b2c1d\n" +
 				"# branch.head feature\n",
@@ -47,9 +34,10 @@ func TestParseStatus(t *testing.T) {
 				"# branch.head master\n" +
 				"? new.txt\n",
 			want: worktreeStatus{
-				Branch: "master",
-				OID:    "4a3b2c1d4a3b2c1d4a3b2c1d4a3b2c1d4a3b2c1d",
-				Dirty:  true,
+				Branch:    "master",
+				OID:       "4a3b2c1d4a3b2c1d4a3b2c1d4a3b2c1d4a3b2c1d",
+				Dirty:     true,
+				Untracked: 1,
 			},
 		},
 		{
@@ -123,28 +111,6 @@ func TestParseStatus(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			if got := parseStatus(tt.out); got != tt.want {
 				t.Errorf("parseStatus:\n got %+v\nwant %+v", got, tt.want)
-			}
-		})
-	}
-}
-
-func TestParseAheadBehind(t *testing.T) {
-	tests := []struct {
-		in            string
-		ahead, behind int
-	}{
-		{"+0 -0", 0, 0},
-		{"+3 -2", 3, 2},
-		{"+12 -0", 12, 0},
-		{"garbage", 0, 0},
-		{"", 0, 0},
-	}
-	for _, tt := range tests {
-		t.Run(tt.in, func(t *testing.T) {
-			ahead, behind := parseAheadBehind(tt.in)
-			if ahead != tt.ahead || behind != tt.behind {
-				t.Errorf("parseAheadBehind(%q) = %d, %d; want %d, %d",
-					tt.in, ahead, behind, tt.ahead, tt.behind)
 			}
 		})
 	}

@@ -7,15 +7,27 @@ import (
 )
 
 // Settings are the scan-level defaults read from git config at
-// startup. Command-line flags override their matching keys; prune
-// values merge, and only/except compose by subtraction after each is
-// resolved.
+// startup. OnlyNamed contains the canonical signs selected through
+// the descriptive comb.only* boolean keys; Only keeps the advanced
+// compact setting for backward compatibility.
 type Settings struct {
-	Prune  []string
-	Jobs   int
-	Hidden bool
-	Only   string
-	Except string
+	Prune     []string
+	Jobs      int
+	Hidden    bool
+	Only      string
+	OnlyNamed string
+	Except    string
+}
+
+var namedOnlyConfigKeys = map[string]byte{
+	"comb.onlydirty":    'D',
+	"comb.onlyunpushed": 'U',
+	"comb.onlyahead":    'A',
+	"comb.onlybehind":   'B',
+	"comb.onlystashed":  'S',
+	"comb.onlyempty":    'E',
+	"comb.onlylocal":    'L',
+	"comb.onlyoffline":  'O',
 }
 
 // LoadSettings reads comb.* scan defaults from the merged git config
@@ -27,7 +39,16 @@ func LoadSettings(dir string) (Settings, error) {
 		return Settings{}, err
 	}
 	var s Settings
+	namedOnly := map[byte]bool{}
 	for _, e := range entries {
+		if sign, ok := namedOnlyConfigKeys[e.key]; ok {
+			b, err := gitBool(e.value)
+			if err != nil {
+				return Settings{}, fmt.Errorf("%s: %w", e.key, err)
+			}
+			namedOnly[sign] = b
+			continue
+		}
 		switch e.key {
 		case "comb.prune":
 			s.Prune = append(s.Prune, e.value)
@@ -49,6 +70,13 @@ func LoadSettings(dir string) (Settings, error) {
 			s.Except = e.value
 		}
 	}
+	var named strings.Builder
+	for i := 0; i < len(signOrder); i++ {
+		if namedOnly[signOrder[i]] {
+			named.WriteByte(signOrder[i])
+		}
+	}
+	s.OnlyNamed = named.String()
 	return s, nil
 }
 

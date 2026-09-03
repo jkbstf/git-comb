@@ -8,6 +8,8 @@ import (
 	"slices"
 	"strings"
 	"testing"
+
+	"github.com/jkbstf/git-comb/internal/comb"
 )
 
 // isolateConfig keeps run() tests away from the developer's real git
@@ -55,10 +57,20 @@ func TestRunHelp(t *testing.T) {
 	if code := run([]string{"--help"}, &stdout, &stderr); code != 0 {
 		t.Errorf("exit = %d, want 0", code)
 	}
-	for _, want := range []string{"Usage: git comb", "--fetch", "Exit status"} {
+	for _, want := range []string{"Usage: git comb", "--short", "--only-dirty", "--fetch", "Exit status"} {
 		if !strings.Contains(stdout.String(), want) {
 			t.Errorf("help output missing %q", want)
 		}
+	}
+}
+
+func TestRunRejectsRetiredVerboseFlag(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	if code := run([]string{"--verbose"}, &stdout, &stderr); code != 2 {
+		t.Errorf("exit = %d, want 2", code)
+	}
+	if !strings.Contains(stderr.String(), "flag provided but not defined: -verbose") {
+		t.Errorf("stderr = %q, want unknown verbose flag", stderr.String())
 	}
 }
 
@@ -93,6 +105,19 @@ func TestRunOnlyFlagAccepted(t *testing.T) {
 	}
 }
 
+func TestRunNamedOnlyFlagsCompose(t *testing.T) {
+	isolateConfig(t)
+	var stdout, stderr bytes.Buffer
+	args := []string{"--only-dirty", "--only-unpushed", "--only-ahead", t.TempDir()}
+	if code := run(args, &stdout, &stderr); code != 0 {
+		t.Errorf("exit = %d, want 0: %s", code, stderr.String())
+	}
+	want := "checking only uncommitted changes, unpushed commits, and branches ahead of upstream"
+	if !strings.Contains(stderr.String(), want) {
+		t.Errorf("stderr = %q, want descriptive combined scope", stderr.String())
+	}
+}
+
 func TestRunExceptFlag(t *testing.T) {
 	isolateConfig(t)
 	var stdout, stderr bytes.Buffer
@@ -106,7 +131,7 @@ func TestRunExceptFlag(t *testing.T) {
 	if code := run([]string{"--only", "DUS", "--except", "S", t.TempDir()}, &stdout, &stderr); code != 0 {
 		t.Errorf("exit = %d for composed selection, want 0: %s", code, stderr.String())
 	}
-	if !strings.Contains(stderr.String(), "(DU only)") {
+	if !strings.Contains(stderr.String(), "checking only uncommitted changes and unpushed commits") {
 		t.Errorf("stderr = %q, want the effective selection disclosed", stderr.String())
 	}
 
@@ -123,7 +148,7 @@ func TestRunExceptFlag(t *testing.T) {
 	if !strings.Contains(stderr.String(), "0 need attention") {
 		t.Errorf("stderr = %q", stderr.String())
 	}
-	if !strings.Contains(stderr.String(), "(no signs checked)") {
+	if !strings.Contains(stderr.String(), "without checking any states") {
 		t.Errorf("stderr = %q, want the empty selection disclosed", stderr.String())
 	}
 }
@@ -143,10 +168,10 @@ func TestRunSignFiltersFromConfig(t *testing.T) {
 	if code := run([]string{base}, &stdout, &stderr); code != 1 {
 		t.Fatalf("exit = %d, want 1: %s", code, stderr.String())
 	}
-	if !strings.Contains(stdout.String(), "E ") || strings.Contains(stdout.String(), "EL") {
+	if !strings.Contains(stdout.String(), "Empty repositories:") || strings.Contains(stdout.String(), "No remotes:") {
 		t.Errorf("comb.except not applied to the row: %q", stdout.String())
 	}
-	if !strings.Contains(stderr.String(), "(DUABSEO only)") {
+	if !strings.Contains(stderr.String(), "checking only uncommitted changes, unpushed commits, branches ahead of upstream, branches behind upstream, stashes, empty repositories, and unreachable remotes") {
 		t.Errorf("stderr = %q, want config-driven selection disclosed", stderr.String())
 	}
 
@@ -156,8 +181,42 @@ func TestRunSignFiltersFromConfig(t *testing.T) {
 	if code := run([]string{"--only", "EL", base}, &stdout, &stderr); code != 1 {
 		t.Fatalf("exit = %d, want 1: %s", code, stderr.String())
 	}
-	if !strings.Contains(stderr.String(), "(E only)") {
+	if !strings.Contains(stderr.String(), "checking only empty repositories") {
 		t.Errorf("stderr = %q, want EL minus L", stderr.String())
+	}
+}
+
+func TestRunNamedOnlyFiltersFromConfig(t *testing.T) {
+	cfg := isolateConfig(t)
+	base := t.TempDir()
+	gitInit(t, filepath.Join(base, "repo")) // a fresh repo reads EL
+
+	content := "[comb]\n\tonlyEmpty = true\n\tonlyLocal = true\n"
+	if err := os.WriteFile(cfg, []byte(content), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	var stdout, stderr bytes.Buffer
+	if code := run([]string{base}, &stdout, &stderr); code != 1 {
+		t.Fatalf("exit = %d, want 1: %s", code, stderr.String())
+	}
+	for _, want := range []string{"Empty repositories:", "No remotes:"} {
+		if !strings.Contains(stdout.String(), want) {
+			t.Errorf("stdout missing %q: %q", want, stdout.String())
+		}
+	}
+	if !strings.Contains(stderr.String(), "checking only empty repositories and repositories without remotes") {
+		t.Errorf("stderr = %q, want named config scope", stderr.String())
+	}
+
+	// Any command-line only filter replaces the configured only
+	// selection as a unit, so a one-off scan is easy to express.
+	stdout.Reset()
+	stderr.Reset()
+	if code := run([]string{"--only-dirty", base}, &stdout, &stderr); code != 0 {
+		t.Fatalf("exit = %d, want 0: %s", code, stderr.String())
+	}
+	if stdout.Len() != 0 || !strings.Contains(stderr.String(), "checking only uncommitted changes") {
+		t.Errorf("command-line only filter did not replace config: stdout=%q stderr=%q", stdout.String(), stderr.String())
 	}
 }
 
@@ -203,6 +262,9 @@ func TestRunEmptyTreeExitsZero(t *testing.T) {
 	}
 	if !strings.Contains(stderr.String(), "combed 0 repositories") {
 		t.Errorf("stderr = %q", stderr.String())
+	}
+	if strings.HasPrefix(stderr.String(), "\n") {
+		t.Errorf("empty output received an unnecessary leading separator: %q", stderr.String())
 	}
 }
 
@@ -256,14 +318,15 @@ func TestExpandShortFlags(t *testing.T) {
 		in   []string
 		want []string
 	}{
-		{"combined booleans", []string{"-va"}, []string{"-v", "-a"}},
-		{"retired fetch short left for the parser", []string{"-fva"}, []string{"-fva"}},
+		{"combined booleans", []string{"-sa"}, []string{"-s", "-a"}},
+		{"retired verbose short left for the parser", []string{"-sva"}, []string{"-sva"}},
+		{"retired fetch short left for the parser", []string{"-fsa"}, []string{"-fsa"}},
 		{"attached jobs value", []string{"-j4"}, []string{"-j", "4"}},
 		{"attached multi-digit", []string{"-j16"}, []string{"-j", "16"}},
 		{"attached only value", []string{"-oDUS"}, []string{"-o", "DUS"}},
 		{"attached except value", []string{"-xAB"}, []string{"-x", "AB"}},
 		{"attached lowercase only", []string{"-odus"}, []string{"-o", "dus"}},
-		{"plain short untouched", []string{"-v"}, []string{"-v"}},
+		{"retired plain short left for the parser", []string{"-v"}, []string{"-v"}},
 		{"bare value short untouched", []string{"-o"}, []string{"-o"}},
 		{"long flags untouched", []string{"--fetch"}, []string{"--fetch"}},
 		{"unknown combo left for the parser", []string{"-fx"}, []string{"-fx"}},
@@ -292,8 +355,8 @@ func TestSummary(t *testing.T) {
 		{5, 1, 0, 1, 13, "", "combed 5 repositories: 1 needs attention (1 repository and 13 branches acknowledged)"},
 		{5, 0, 0, 2, 0, "", "combed 5 repositories: 0 need attention (2 repositories acknowledged)"},
 		{5, 0, 0, 0, 1, "", "combed 5 repositories: 0 need attention (1 branch acknowledged)"},
-		{5, 2, 0, 0, 0, "DU", "combed 5 repositories: 2 need attention (DU only)"},
-		{5, 0, 0, 1, 0, "none", "combed 5 repositories: 0 need attention (1 repository acknowledged, no signs checked)"},
+		{5, 2, 0, 0, 0, "uncommitted changes and unpushed commits", "combed 5 repositories, checking only uncommitted changes and unpushed commits: 2 need attention"},
+		{5, 0, 0, 1, 0, "none", "combed 5 repositories without checking any states: 0 need attention (1 repository acknowledged)"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.want, func(t *testing.T) {
@@ -302,6 +365,27 @@ func TestSummary(t *testing.T) {
 				t.Errorf("summary = %q, want %q", got, tt.want)
 			}
 		})
+	}
+}
+
+func TestSelectedStatesUsesWordsInsteadOfSigns(t *testing.T) {
+	only, err := comb.ParseSignSet("DUA")
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := "uncommitted changes, unpushed commits, and branches ahead of upstream"
+	if got := selectedStates(only); got != want {
+		t.Errorf("selectedStates = %q, want %q", got, want)
+	}
+}
+
+func TestNamedOnlyFlagsCoverEveryState(t *testing.T) {
+	flags := namedOnlyFlags{
+		Dirty: true, Unpushed: true, Ahead: true, Behind: true,
+		Stashed: true, Empty: true, Local: true, Offline: true,
+	}
+	if got, want := flags.signs(), "DUABSELO"; got != want {
+		t.Errorf("signs = %q, want %q", got, want)
 	}
 }
 
@@ -324,5 +408,13 @@ func TestColorEnabled(t *testing.T) {
 	t.Setenv("NO_COLOR", "1")
 	if on, _ := colorEnabled("auto", os.Stdout); on {
 		t.Error("auto ignored NO_COLOR")
+	}
+}
+
+func TestOutputWidthUsesGitFallbackForNonTerminal(t *testing.T) {
+	t.Setenv("COLUMNS", "160")
+	var buf bytes.Buffer
+	if got, want := outputWidth(&buf), 80; got != want {
+		t.Errorf("outputWidth = %d, want %d", got, want)
 	}
 }

@@ -20,7 +20,8 @@ func TestLoadSettings(t *testing.T) {
 	}
 
 	cfg := os.Getenv("GIT_CONFIG_GLOBAL")
-	content := "[comb]\n\tprune = _deps\n\tprune = build\n\tjobs = 12\n\thidden = yes\n"
+	content := "[comb]\n\tprune = _deps\n\tprune = build\n\tjobs = 12\n\thidden = yes\n" +
+		"\tonlyDirty = true\n\tonlyUnpushed = yes\n\tonlyAhead = false\n"
 	if err := os.WriteFile(cfg, []byte(content), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -34,12 +35,22 @@ func TestLoadSettings(t *testing.T) {
 	if s.Jobs != 12 || !s.Hidden {
 		t.Errorf("Jobs, Hidden = %d, %v; want 12, true", s.Jobs, s.Hidden)
 	}
+	if s.OnlyNamed != "DU" {
+		t.Errorf("OnlyNamed = %q, want DU", s.OnlyNamed)
+	}
 
 	if err := os.WriteFile(cfg, []byte("[comb]\n\tjobs = many\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := LoadSettings(dir); err == nil {
 		t.Error("invalid comb.jobs accepted")
+	}
+
+	if err := os.WriteFile(cfg, []byte("[comb]\n\tonlyDirty = maybe\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := LoadSettings(dir); err == nil {
+		t.Error("invalid comb.onlyDirty accepted")
 	}
 }
 

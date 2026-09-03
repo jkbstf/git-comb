@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"strconv"
 	"strings"
 
 	"github.com/jkbstf/git-comb/internal/comb"
@@ -21,32 +22,42 @@ var version = "dev"
 const usageFmt = `Usage: git comb [OPTION]... [DIR]...
 
 Comb every Git repository under the given directories (default: the
-current directory) and report work that exists only on this machine:
-uncommitted changes, commits unreachable from any remote, and stashes.
+current directory) and report local work at risk plus synchronization
+state across every local branch: uncommitted changes, commits
+unreachable from any remote, stashes, and ahead/behind branches.
 
-    -v, --verbose     list the branches that hold unpushed commits
-    -a, --all         print clean repositories too
-    -o, --only SIGNS  look only for these sign classes (e.g. DUS)
-    -x, --except SIGNS  look for everything but these classes (e.g. AB)
-    -j, --jobs N      probe N repositories in parallel (default %d)
-        --fetch       fetch all remotes first (may prompt), so behind
-                      is current
-        --hidden      descend into hidden directories
-        --prune GLOB  skip directories matching GLOB (repeatable;
-                      node_modules is always skipped)
-        --no-ignores  disregard comb.ignore and comb.ignoreBranch
-        --color WHEN  color the output: auto, always, never
-        --version     print the version and exit
-    -h, --help        show this help
+    -s, --short          show signs and paths, one repository per line
+    -a, --all            print clean repositories too
+        --only-dirty     look only for repositories with uncommitted changes
+        --only-unpushed  look only for commits that exist on no remote
+        --only-ahead     look only for branches ahead of their upstream
+        --only-behind    look only for branches behind their upstream
+        --only-stashed   look only for repositories with stashes
+        --only-empty     look only for empty repositories
+        --only-local     look only for repositories without remotes
+        --only-offline   look only for remotes unreachable during --fetch
+    -o, --only SIGNS     advanced shorthand for combining sign classes
+    -x, --except SIGNS   exclude sign classes (e.g. AB)
+    -j, --jobs N         probe N repositories in parallel (default %d)
+        --fetch          fetch all remotes first (may prompt), so behind
+                         is current
+        --hidden         descend into hidden directories
+        --prune GLOB     skip directories matching GLOB (repeatable;
+                         node_modules is always skipped)
+        --no-ignores     disregard comb.ignore and comb.ignoreBranch
+        --color WHEN     color the output: auto, always, never
+        --version        print the version and exit
+    -h, --help           show this help
 
 Signs: D dirty  U unpushed  A ahead  B behind  S stashed
        E empty  L local  O offline
 
 Defaults come from git config (comb.prune, comb.jobs, comb.hidden,
-comb.only, comb.except); comb.ignore and comb.ignoreBranch
-acknowledge repositories and branches per clone or globally. Flags
-win key by key, only and except compose, and the summary discloses
-acknowledgments and any narrowed selection.
+comb.onlyDirty and the other named filters, comb.only, comb.except);
+comb.ignore and comb.ignoreBranch acknowledge repositories and branches
+per clone or globally. Command-line only filters replace configured only
+filters; named filters combine, except then subtracts, and the summary
+discloses acknowledgments and any narrowed selection.
 
 Exit status: 0 all clean, 1 findings, 2 errors.
 `
@@ -60,9 +71,11 @@ func main() {
 func run(args []string, stdout, stderr io.Writer) int {
 	var (
 		opts        comb.Options
+		short       bool
 		colorWhen   string
 		onlySigns   string
 		exceptSigns string
+		onlyNamed   namedOnlyFlags
 		showVersion bool
 	)
 
@@ -70,8 +83,8 @@ func run(args []string, stdout, stderr io.Writer) int {
 	fs.SetOutput(io.Discard)
 	fs.Usage = func() {}
 	fs.BoolVar(&opts.Fetch, "fetch", false, "")
-	fs.BoolVar(&opts.Verbose, "verbose", false, "")
-	fs.BoolVar(&opts.Verbose, "v", false, "")
+	fs.BoolVar(&short, "short", false, "")
+	fs.BoolVar(&short, "s", false, "")
 	fs.BoolVar(&opts.All, "all", false, "")
 	fs.BoolVar(&opts.All, "a", false, "")
 	fs.IntVar(&opts.Jobs, "jobs", comb.DefaultJobs(), "")
@@ -82,6 +95,14 @@ func run(args []string, stdout, stderr io.Writer) int {
 	fs.StringVar(&onlySigns, "o", "", "")
 	fs.StringVar(&exceptSigns, "except", "", "")
 	fs.StringVar(&exceptSigns, "x", "", "")
+	fs.BoolVar(&onlyNamed.Dirty, "only-dirty", false, "")
+	fs.BoolVar(&onlyNamed.Unpushed, "only-unpushed", false, "")
+	fs.BoolVar(&onlyNamed.Ahead, "only-ahead", false, "")
+	fs.BoolVar(&onlyNamed.Behind, "only-behind", false, "")
+	fs.BoolVar(&onlyNamed.Stashed, "only-stashed", false, "")
+	fs.BoolVar(&onlyNamed.Empty, "only-empty", false, "")
+	fs.BoolVar(&onlyNamed.Local, "only-local", false, "")
+	fs.BoolVar(&onlyNamed.Offline, "only-offline", false, "")
 	fs.BoolVar(&opts.NoIgnores, "no-ignores", false, "")
 	fs.StringVar(&colorWhen, "color", "auto", "")
 	fs.BoolVar(&showVersion, "version", false, "")
@@ -111,6 +132,11 @@ func run(args []string, stdout, stderr io.Writer) int {
 	if len(opts.Roots) == 0 {
 		opts.Roots = []string{"."}
 	}
+	// The grouped view combines per-branch local-only and upstream
+	// status and summarizes working-tree changes. The compact view
+	// deliberately avoids those extra detail probes.
+	opts.BranchDetails = !short
+	opts.DirtyDetails = !short
 
 	// Scan defaults come from git config; explicitly set flags win,
 	// and prune values merge rather than replace.
@@ -129,12 +155,14 @@ func run(args []string, stdout, stderr io.Writer) int {
 	}
 	opts.Prune = append(comb.PruneList(settings.Prune), opts.Prune...)
 
-	// The selection composes: only chooses (flag over comb.only, else
-	// everything), then except subtracts (flag over comb.except). An
-	// empty result finds nothing.
-	onlySrc, onlyStr := "--only", onlySigns
-	if onlyStr == "" {
-		onlySrc, onlyStr = "comb.only", settings.Only
+	// Named only filters combine with each other and with the compact
+	// --only shorthand. Any command-line only filter replaces the
+	// configured only selection as a unit; except then subtracts from
+	// it. An empty result finds nothing.
+	cliOnly := onlySigns + onlyNamed.signs()
+	onlySrc, onlyStr := "--only", cliOnly
+	if cliOnly == "" {
+		onlySrc, onlyStr = "comb.only", settings.Only+settings.OnlyNamed
 	}
 	if onlyStr != "" {
 		opts.Only, err = comb.ParseSignSet(onlyStr)
@@ -162,10 +190,12 @@ func run(args []string, stdout, stderr io.Writer) int {
 		return 2
 	}
 	attention, failed := comb.Render(stdout, reports, comb.RenderOptions{
-		All:     opts.All,
-		Verbose: opts.Verbose,
-		Color:   useColor,
-		Only:    opts.Only,
+		Roots: opts.Roots,
+		All:   opts.All,
+		Short: short,
+		Color: useColor,
+		Width: outputWidth(stdout),
+		Only:  opts.Only,
 	})
 	ackedRepos, ackedBranches := 0, 0
 	for _, r := range reports {
@@ -174,14 +204,14 @@ func run(args []string, stdout, stderr io.Writer) int {
 		}
 		ackedBranches += r.AckedBranches
 	}
-	signsLabel := ""
+	selectionLabel := ""
 	if !opts.Only.All() {
-		signsLabel = opts.Only.String()
-		if signsLabel == "" {
-			signsLabel = "none"
-		}
+		selectionLabel = selectedStates(opts.Only)
 	}
-	fmt.Fprintln(stderr, summary(len(reports), attention, failed, ackedRepos, ackedBranches, signsLabel))
+	if hasRenderedReports(reports, opts.All, opts.Only) {
+		fmt.Fprintln(stderr)
+	}
+	fmt.Fprintln(stderr, summary(len(reports), attention, failed, ackedRepos, ackedBranches, selectionLabel))
 
 	switch {
 	case failed > 0:
@@ -192,9 +222,24 @@ func run(args []string, stdout, stderr io.Writer) int {
 	return 0
 }
 
+// hasRenderedReports keeps the summary's leading separation tied to
+// actual stdout content. A clean scan without --all should start
+// directly with its summary rather than an unexplained blank line.
+func hasRenderedReports(reports []comb.Report, all bool, only comb.SignSet) bool {
+	for _, r := range reports {
+		if r.Ignored {
+			continue
+		}
+		if r.Err != nil || only.Filter(r.Signs()) != "" || all {
+			return true
+		}
+	}
+	return false
+}
+
 // parseArgs parses flags the way git commands do: options and
 // directories may be interleaved, single-letter boolean flags
-// combine ("-fv"), -j takes an attached value ("-j4"), and everything
+// combine ("-sa"), -j takes an attached value ("-j4"), and everything
 // after "--" is a directory.
 func parseArgs(fs *flag.FlagSet, args []string) ([]string, error) {
 	head := args
@@ -222,14 +267,14 @@ func parseArgs(fs *flag.FlagSet, args []string) ([]string, error) {
 	return append(roots, tail...), nil
 }
 
-// expandShortFlags rewrites "-va" into "-v -a" and attached values
+// expandShortFlags rewrites "-sa" into "-s -a" and attached values
 // like "-j4" or "-oDUS" into "-j 4" and "-o DUS", which the standard
 // flag package does not do on its own. Following getopt convention,
 // the leftmost letter decides: a value-taking short consumes the rest
 // of the token as its argument.
 func expandShortFlags(args []string) []string {
 	const (
-		boolShorts  = "va"
+		boolShorts  = "sa"
 		valueShorts = "jox"
 	)
 	out := make([]string, 0, len(args))
@@ -254,11 +299,10 @@ func expandShortFlags(args []string) []string {
 }
 
 // summary is the one human line, written to stderr so stdout stays a
-// pure finding list. Acknowledged repositories and branches — and any
-// narrowed sign selection, however it was configured — are disclosed
-// as qualifications: suppression asked for is focus, but it must never
-// be silent.
-func summary(repos, attention, failed, ackedRepos, ackedBranches int, signs string) string {
+// pure finding list. A narrowed selection is integrated into the main
+// sentence using state names; the sign vocabulary stays an optional
+// shorthand rather than the primary interface.
+func summary(repos, attention, failed, ackedRepos, ackedBranches int, selection string) string {
 	noun := "repositories"
 	if repos == 1 {
 		noun = "repository"
@@ -267,7 +311,13 @@ func summary(repos, attention, failed, ackedRepos, ackedBranches int, signs stri
 	if attention == 1 {
 		verb = "needs"
 	}
-	s := fmt.Sprintf("combed %d %s: %d %s attention", repos, noun, attention, verb)
+	s := fmt.Sprintf("combed %d %s", repos, noun)
+	if selection == "none" {
+		s += " without checking any states"
+	} else if selection != "" {
+		s += ", checking only " + selection
+	}
+	s += fmt.Sprintf(": %d %s attention", attention, verb)
 	if failed > 0 {
 		s += fmt.Sprintf(", %d failed", failed)
 	}
@@ -282,17 +332,75 @@ func summary(repos, attention, failed, ackedRepos, ackedBranches int, signs stri
 		}
 		qualifications = append(qualifications, strings.Join(parts, " and ")+" acknowledged")
 	}
-	if signs != "" {
-		if signs == "none" {
-			qualifications = append(qualifications, "no signs checked")
-		} else {
-			qualifications = append(qualifications, signs+" only")
-		}
-	}
 	if len(qualifications) > 0 {
 		s += " (" + strings.Join(qualifications, ", ") + ")"
 	}
 	return s
+}
+
+type namedOnlyFlags struct {
+	Dirty, Unpushed, Ahead, Behind bool
+	Stashed, Empty, Local, Offline bool
+}
+
+func (o namedOnlyFlags) signs() string {
+	var b strings.Builder
+	for _, item := range []struct {
+		on   bool
+		sign byte
+	}{
+		{o.Dirty, 'D'},
+		{o.Unpushed, 'U'},
+		{o.Ahead, 'A'},
+		{o.Behind, 'B'},
+		{o.Stashed, 'S'},
+		{o.Empty, 'E'},
+		{o.Local, 'L'},
+		{o.Offline, 'O'},
+	} {
+		if item.on {
+			b.WriteByte(item.sign)
+		}
+	}
+	return b.String()
+}
+
+func selectedStates(only comb.SignSet) string {
+	var states []string
+	for _, item := range []struct {
+		sign byte
+		name string
+	}{
+		{'D', "uncommitted changes"},
+		{'U', "unpushed commits"},
+		{'A', "branches ahead of upstream"},
+		{'B', "branches behind upstream"},
+		{'S', "stashes"},
+		{'E', "empty repositories"},
+		{'L', "repositories without remotes"},
+		{'O', "unreachable remotes"},
+	} {
+		if only.Has(item.sign) {
+			states = append(states, item.name)
+		}
+	}
+	if len(states) == 0 {
+		return "none"
+	}
+	return joinNatural(states)
+}
+
+func joinNatural(items []string) string {
+	switch len(items) {
+	case 0:
+		return ""
+	case 1:
+		return items[0]
+	case 2:
+		return items[0] + " and " + items[1]
+	default:
+		return strings.Join(items[:len(items)-1], ", ") + ", and " + items[len(items)-1]
+	}
 }
 
 func pluralize(n int, one, many string) string {
@@ -325,4 +433,25 @@ func colorEnabled(when string, out io.Writer) (bool, error) {
 		return info.Mode()&os.ModeCharDevice != 0, nil
 	}
 	return false, fmt.Errorf("invalid --color value %q (want auto, always, or never)", when)
+}
+
+// outputWidth follows diffstat: use terminal width when available and
+// 80 columns for redirected output or when the terminal cannot report it.
+func outputWidth(out io.Writer) int {
+	const fallback = 80
+	f, ok := out.(*os.File)
+	if !ok {
+		return fallback
+	}
+	info, err := f.Stat()
+	if err != nil || info.Mode()&os.ModeCharDevice == 0 {
+		return fallback
+	}
+	if width, ok := terminalColumns(f); ok {
+		return width
+	}
+	if width, err := strconv.Atoi(os.Getenv("COLUMNS")); err == nil && width >= 40 {
+		return width
+	}
+	return fallback
 }

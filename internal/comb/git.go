@@ -3,6 +3,7 @@ package comb
 import (
 	"bytes"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"strconv"
@@ -25,9 +26,9 @@ var repoLocationEnv = []string{
 }
 
 // gitEnv is the child environment: the parent's, minus the
-// repo-location overrides, plus any extras.
-func gitEnv(extra ...string) []string {
-	env := make([]string, 0, len(os.Environ())+len(extra))
+// repo-location overrides.
+func gitEnv() []string {
+	env := make([]string, 0, len(os.Environ()))
 	for _, kv := range os.Environ() {
 		name, _, ok := strings.Cut(kv, "=")
 		if ok && isRepoLocationVar(name) {
@@ -35,7 +36,7 @@ func gitEnv(extra ...string) []string {
 		}
 		env = append(env, kv)
 	}
-	return append(env, extra...)
+	return env
 }
 
 func isRepoLocationVar(name string) bool {
@@ -51,14 +52,20 @@ func isRepoLocationVar(name string) bool {
 // invocation passes --no-optional-locks so a probe can never take a
 // lock an editor or IDE is waiting on.
 func gitOut(repo string, args ...string) (string, error) {
-	return gitOutEnv(repo, nil, args...)
+	return gitOutput(repo, nil, args...)
 }
 
-// gitOutEnv is gitOut with extra environment variables for the child.
-func gitOutEnv(repo string, extraEnv []string, args ...string) (string, error) {
+// gitOutInput is gitOut with explicit standard input, including an
+// intentionally empty stream.
+func gitOutInput(repo, input string, args ...string) (string, error) {
+	return gitOutput(repo, strings.NewReader(input), args...)
+}
+
+func gitOutput(repo string, stdin io.Reader, args ...string) (string, error) {
 	argv := append([]string{"-C", repo, "--no-optional-locks"}, args...)
 	cmd := exec.Command("git", argv...)
-	cmd.Env = gitEnv(extraEnv...)
+	cmd.Env = gitEnv()
+	cmd.Stdin = stdin
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr

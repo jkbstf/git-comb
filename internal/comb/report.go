@@ -9,12 +9,15 @@ type Report struct {
 	Branch string
 	// Dirty means uncommitted changes, untracked files included.
 	Dirty bool
+	// DirtyStat summarizes tracked changes relative to HEAD and counts
+	// untracked files when the probe gathered dirty details.
+	DirtyStat ShortStat
 	// Empty means the repository has no commits on any branch.
 	Empty bool
-	// Ahead means the current branch is ahead of its upstream.
+	// Ahead means at least one local branch is ahead of its upstream.
 	Ahead bool
-	// Behind means the current branch is behind its upstream, as of
-	// the last fetch.
+	// Behind means at least one local branch is behind its upstream, as
+	// of the last fetch.
 	Behind bool
 	// Unpushed counts commits reachable from local refs but from no
 	// remote-tracking ref. The carrier of a worktree group counts the
@@ -36,17 +39,39 @@ type Report struct {
 	// AckedBranches counts branch names whose unpushed commits were
 	// acknowledged by comb.ignoreBranch globs on this probe.
 	AckedBranches int
-	// UnpushedBranches carries per-branch unpushed counts when the
-	// probe ran verbose.
-	UnpushedBranches []BranchCount
+	// Branches carries one combined status per branch needing attention
+	// when the probe gathered branch details.
+	Branches []BranchStatus
 	// Err is the probe failure, if any; other fields are then zero.
 	Err error
 }
 
-// BranchCount pairs a branch name with its unpushed commit count.
-type BranchCount struct {
-	Name    string
-	Commits int
+// BranchStatus combines the independent questions asked about one
+// branch: whether its commits exist on any remote and how it relates
+// to its configured upstream.
+type BranchStatus struct {
+	Name     string
+	Upstream string
+	Unpushed int
+	Ahead    int
+	Behind   int
+	// InWorktree means the branch is checked out in this repository's
+	// current worktree or in one of its linked worktrees.
+	InWorktree bool
+	Detached   bool
+	// UpstreamGone means the branch is configured to track Upstream,
+	// but that remote-tracking ref no longer exists locally.
+	UpstreamGone bool
+}
+
+// ShortStat is the diff --shortstat-style summary of a working tree.
+// FilesChanged counts tracked paths; Untracked is kept separate
+// because Git diffs do not include them.
+type ShortStat struct {
+	FilesChanged int
+	Insertions   int
+	Deletions    int
+	Untracked    int
 }
 
 // Signs renders the findings column: single characters in a fixed

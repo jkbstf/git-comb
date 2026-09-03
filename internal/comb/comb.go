@@ -20,8 +20,13 @@ type Options struct {
 	// Fetch updates all remotes before probing, prompting for
 	// authentication when needed, so behind is current.
 	Fetch bool
-	// Verbose gathers per-branch unpushed detail.
-	Verbose bool
+	// BranchDetails gathers per-branch unpushed and upstream divergence
+	// counts for the grouped view. The short view leaves this false to
+	// keep probing lighter.
+	BranchDetails bool
+	// DirtyDetails gathers a diff-style summary for the grouped view.
+	// The short view leaves this false to keep probing lighter.
+	DirtyDetails bool
 	// All keeps clean repositories in the rendered output.
 	All bool
 	// Hidden descends into hidden directories during discovery.
@@ -87,7 +92,7 @@ func probeAll(repos []string, opts Options) []Report {
 		jobs = 1
 	}
 	var carriers, linked []bool
-	if opts.Fetch || opts.Only.Has('U') || opts.Only.Has('S') {
+	if opts.Fetch || opts.Only.Has('U') || opts.Only.Has('A') || opts.Only.Has('B') || opts.Only.Has('S') {
 		carriers, linked = electCarriers(repos, jobs)
 	} else {
 		carriers = make([]bool, len(repos))

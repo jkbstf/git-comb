@@ -187,7 +187,7 @@ func runBinary(t *testing.T, args ...string) binResult {
 }
 
 func row(sign, path string) string {
-	return fmt.Sprintf("%-6s %s [master]", sign, path)
+	return fmt.Sprintf("%-6s %s", sign, path)
 }
 
 func TestE2EKitchenSink(t *testing.T) {
@@ -200,16 +200,27 @@ func TestE2EKitchenSink(t *testing.T) {
 		t.Fatalf("exit = %d, want 1; stderr: %s", res.code, res.stderr)
 	}
 	want := strings.Join([]string{
-		row("D", filepath.Join(base, "dirty")),
-		row("L", filepath.Join(base, "norem")),
-		row("S", filepath.Join(base, "stash")),
-		row("U", filepath.Join(base, "unpushed")),
+		"Uncommitted changes:",
+		"  dirty  [master]  1 untracked file",
+		"",
+		"No remotes:",
+		"  norem",
+		"",
+		"Branches:",
+		"  unpushed",
+		"      keep/x  1 unpushed commit, no upstream",
+		"",
+		"Stashes:",
+		"  stash  1 stash",
 	}, "\n") + "\n"
 	if res.stdout != want {
 		t.Errorf("stdout:\n%q\nwant:\n%q", res.stdout, want)
 	}
 	if strings.Contains(res.stdout, "\x1b") {
 		t.Error("piped stdout contains ANSI escapes")
+	}
+	if !strings.HasPrefix(res.stderr, "\ncombed") {
+		t.Errorf("summary is not separated from findings: %q", res.stderr)
 	}
 	for _, wantErr := range []string{
 		"combed 6 repositories",
@@ -222,27 +233,47 @@ func TestE2EKitchenSink(t *testing.T) {
 	}
 }
 
-func TestE2EVerboseNamesTheBranch(t *testing.T) {
+func TestE2EShortPreservesCompactView(t *testing.T) {
 	requireBinary(t)
 	e2eEnv(t)
 	base := buildKitchen(t)
 
-	res := runBinary(t, "-v", base)
-	if !strings.Contains(res.stdout, "unpushed: keep/x (1)") {
-		t.Errorf("verbose detail missing:\n%s", res.stdout)
+	res := runBinary(t, "--short", base)
+	if res.code != 1 {
+		t.Fatalf("exit = %d, want 1; stderr: %s", res.code, res.stderr)
+	}
+	want := strings.Join([]string{
+		row("D", "dirty"),
+		row("L", "norem"),
+		row("S", "stash"),
+		row("U", "unpushed"),
+	}, "\n") + "\n"
+	if res.stdout != want {
+		t.Errorf("stdout:\n%q\nwant:\n%q", res.stdout, want)
 	}
 }
 
-func TestE2EOnlyFiltersProcessWide(t *testing.T) {
+func TestE2EDefaultDescribesTheUnpushedBranch(t *testing.T) {
 	requireBinary(t)
 	e2eEnv(t)
 	base := buildKitchen(t)
 
-	res := runBinary(t, "-oD", base)
+	res := runBinary(t, base)
+	if !strings.Contains(res.stdout, "keep/x  1 unpushed commit, no upstream") {
+		t.Errorf("branch detail missing:\n%s", res.stdout)
+	}
+}
+
+func TestE2ENamedOnlyFilterWorksProcessWide(t *testing.T) {
+	requireBinary(t)
+	e2eEnv(t)
+	base := buildKitchen(t)
+
+	res := runBinary(t, "--only-dirty", base)
 	if res.code != 1 {
 		t.Fatalf("exit = %d, want 1", res.code)
 	}
-	want := row("D", filepath.Join(base, "dirty")) + "\n"
+	want := "Uncommitted changes:\n  dirty  [master]  1 untracked file\n"
 	if res.stdout != want {
 		t.Errorf("stdout:\n%q\nwant:\n%q", res.stdout, want)
 	}
@@ -260,10 +291,10 @@ func TestE2EExceptHidesTheNoise(t *testing.T) {
 	if res.code != 1 {
 		t.Fatalf("exit = %d, want 1", res.code)
 	}
-	if strings.Contains(res.stdout, filepath.Join(base, "norem")) {
+	if strings.Contains(res.stdout, "  norem\n") {
 		t.Errorf("excluded L row still rendered:\n%s", res.stdout)
 	}
-	if !strings.Contains(res.stdout, filepath.Join(base, "dirty")) {
+	if !strings.Contains(res.stdout, "  dirty  [master]") {
 		t.Errorf("unexcluded rows missing:\n%s", res.stdout)
 	}
 	if !strings.Contains(res.stderr, "3 need attention") {
@@ -308,8 +339,8 @@ func TestE2EBrokenRepoExitsTwo(t *testing.T) {
 	if res.code != 2 {
 		t.Fatalf("exit = %d, want 2; stderr: %s", res.code, res.stderr)
 	}
-	if !strings.HasPrefix(res.stdout, "!") {
-		t.Errorf("stdout = %q, want a ! failure line", res.stdout)
+	if !strings.HasPrefix(res.stdout, "Inspection failures:\n") {
+		t.Errorf("stdout = %q, want a failure section", res.stdout)
 	}
 	if !strings.Contains(res.stderr, "1 failed") {
 		t.Errorf("stderr = %q", res.stderr)
@@ -370,7 +401,8 @@ func TestE2EGitDispatch(t *testing.T) {
 	if !errors.As(err, &exit) || exit.ExitCode() != 1 {
 		t.Fatalf("git comb scan: err = %v, want exit 1", err)
 	}
-	if !strings.Contains(stdout.String(), row("U", filepath.Join(base, "unpushed"))) {
+	if !strings.Contains(stdout.String(), "Branches:") ||
+		!strings.Contains(stdout.String(), "\n  unpushed\n") {
 		t.Errorf("dispatch scan output:\n%s", stdout.String())
 	}
 }

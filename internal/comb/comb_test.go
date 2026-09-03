@@ -142,6 +142,51 @@ func TestProbeUntrackedOnlyIsDirty(t *testing.T) {
 	if got, want := r.Signs(), "D"; got != want {
 		t.Errorf("Signs() = %q, want %q", got, want)
 	}
+	if r.DirtyStat != (ShortStat{}) {
+		t.Errorf("DirtyStat = %+v without dirty details, want zero", r.DirtyStat)
+	}
+}
+
+func TestProbeDirtyStatIncludesStagedUnstagedAndUntracked(t *testing.T) {
+	requireGit(t)
+	setupGitEnv(t)
+	repo, _ := syncedRepo(t)
+
+	writeFile(t, filepath.Join(repo, "file.txt"), "content\nchanged\n")
+	writeFile(t, filepath.Join(repo, "staged.txt"), "alpha\nbeta\n")
+	mustGit(t, repo, "add", "staged.txt")
+	writeFile(t, filepath.Join(repo, "staged.txt"), "alpha\nbeta\ngamma\n")
+	writeFile(t, filepath.Join(repo, "untracked.txt"), "loose\n")
+
+	r := probeAlone(repo, Options{DirtyDetails: true})
+	if r.Err != nil {
+		t.Fatalf("probe: %v", r.Err)
+	}
+	want := ShortStat{FilesChanged: 2, Insertions: 4, Untracked: 1}
+	if r.DirtyStat != want {
+		t.Errorf("DirtyStat = %+v, want %+v", r.DirtyStat, want)
+	}
+}
+
+func TestProbeDirtyStatOnUnbornBranch(t *testing.T) {
+	requireGit(t)
+	setupGitEnv(t)
+	repo := filepath.Join(tempDir(t), "repo")
+	initRepo(t, repo)
+
+	writeFile(t, filepath.Join(repo, "staged.txt"), "alpha\nbeta\n")
+	mustGit(t, repo, "add", "staged.txt")
+	writeFile(t, filepath.Join(repo, "staged.txt"), "alpha\nbeta\ngamma\n")
+	writeFile(t, filepath.Join(repo, "untracked.txt"), "loose\n")
+
+	r := probeAlone(repo, Options{DirtyDetails: true})
+	if r.Err != nil {
+		t.Fatalf("probe: %v", r.Err)
+	}
+	want := ShortStat{FilesChanged: 1, Insertions: 3, Untracked: 1}
+	if r.DirtyStat != want {
+		t.Errorf("DirtyStat = %+v, want %+v", r.DirtyStat, want)
+	}
 }
 
 // TestProbeNeverPushedBranch is the reason this tool exists: the
@@ -155,7 +200,7 @@ func TestProbeNeverPushedBranch(t *testing.T) {
 	commitFile(t, repo, "file.txt", "changed\n", "work to keep")
 	mustGit(t, repo, "checkout", "--quiet", "master")
 
-	r := probeAlone(repo, Options{Verbose: true})
+	r := probeAlone(repo, Options{BranchDetails: true})
 	if r.Err != nil {
 		t.Fatalf("probe: %v", r.Err)
 	}
@@ -165,9 +210,9 @@ func TestProbeNeverPushedBranch(t *testing.T) {
 	if r.Unpushed != 1 {
 		t.Errorf("Unpushed = %d, want 1", r.Unpushed)
 	}
-	want := []BranchCount{{Name: "backup/important", Commits: 1}}
-	if !slices.Equal(r.UnpushedBranches, want) {
-		t.Errorf("UnpushedBranches = %+v, want %+v", r.UnpushedBranches, want)
+	want := []BranchStatus{{Name: "backup/important", Unpushed: 1}}
+	if !slices.Equal(r.Branches, want) {
+		t.Errorf("Branches = %+v, want %+v", r.Branches, want)
 	}
 }
 
@@ -196,15 +241,15 @@ func TestProbeDetachedHeadCommit(t *testing.T) {
 	mustGit(t, repo, "checkout", "--quiet", "--detach")
 	commitFile(t, repo, "file.txt", "detached work\n", "detached commit")
 
-	r := probeAlone(repo, Options{Verbose: true})
+	r := probeAlone(repo, Options{BranchDetails: true})
 	if r.Unpushed != 1 {
 		t.Errorf("Unpushed = %d, want 1", r.Unpushed)
 	}
 	if !strings.HasPrefix(r.Branch, "detached@") {
 		t.Errorf("Branch = %q, want detached@<oid>", r.Branch)
 	}
-	if len(r.UnpushedBranches) != 1 || r.UnpushedBranches[0].Name != "(detached)" {
-		t.Errorf("UnpushedBranches = %+v, want one (detached) entry", r.UnpushedBranches)
+	if len(r.Branches) != 1 || r.Branches[0].Name != "(detached HEAD)" {
+		t.Errorf("Branches = %+v, want one detached HEAD entry", r.Branches)
 	}
 }
 
@@ -218,7 +263,7 @@ func TestProbeOrphanCheckoutKeepsUnpushedVisible(t *testing.T) {
 	commitFile(t, repo, "file.txt", "unpushed\n", "not pushed")
 	mustGit(t, repo, "checkout", "--quiet", "--orphan", "wip-pages")
 
-	r := probeAlone(repo, Options{Verbose: true})
+	r := probeAlone(repo, Options{BranchDetails: true})
 	if r.Err != nil {
 		t.Fatalf("probe: %v", r.Err)
 	}
@@ -280,9 +325,10 @@ func TestProbeEmptyRepo(t *testing.T) {
 	}
 }
 
-// TestProbeAheadIsAlsoUnpushed: a commit ahead of upstream is by
-// definition on no remote, so A implies U.
-func TestProbeAheadIsAlsoUnpushed(t *testing.T) {
+// TestProbeUnpublishedAheadCommitIsUnpushed covers the common case
+// where the new commit is neither in the upstream nor on another
+// remote branch.
+func TestProbeUnpublishedAheadCommitIsUnpushed(t *testing.T) {
 	requireGit(t)
 	setupGitEnv(t)
 	repo, _ := syncedRepo(t)
@@ -291,6 +337,134 @@ func TestProbeAheadIsAlsoUnpushed(t *testing.T) {
 	r := probeAlone(repo, Options{})
 	if got, want := r.Signs(), "UA"; got != want {
 		t.Errorf("Signs() = %q, want %q", got, want)
+	}
+}
+
+// TestProbeSeparatesUpstreamDivergenceFromRemoteReachability guards
+// the less common partial-push case: five commits are ahead of the
+// configured upstream, but three of them already exist on a different
+// remote branch, leaving only two genuinely unpushed.
+func TestProbeSeparatesUpstreamDivergenceFromRemoteReachability(t *testing.T) {
+	requireGit(t)
+	setupGitEnv(t)
+	repo, bare := syncedRepo(t)
+	mustGit(t, repo, "checkout", "--quiet", "-b", "topic")
+	mustGit(t, repo, "branch", "--set-upstream-to", "origin/master")
+	commitFile(t, repo, "topic.txt", "one\n", "topic one")
+	commitFile(t, repo, "topic.txt", "one\ntwo\n", "topic two")
+	commitFile(t, repo, "topic.txt", "one\ntwo\nthree\n", "topic three")
+	mustGit(t, repo, "push", "--quiet", "origin", "HEAD:refs/heads/published-part")
+	commitFile(t, repo, "topic.txt", "one\ntwo\nthree\nfour\n", "topic four")
+	commitFile(t, repo, "topic.txt", "one\ntwo\nthree\nfour\nfive\n", "topic five")
+
+	other := filepath.Join(tempDir(t), "other")
+	mustGit(t, filepath.Dir(other), "clone", "--quiet", bare, other)
+	commitFile(t, other, "remote.txt", "one\n", "remote one")
+	commitFile(t, other, "remote.txt", "one\ntwo\n", "remote two")
+	commitFile(t, other, "remote.txt", "one\ntwo\nthree\n", "remote three")
+	mustGit(t, other, "push", "--quiet")
+	mustGit(t, repo, "fetch", "--quiet")
+
+	r := probeAlone(repo, Options{BranchDetails: true})
+	if r.Err != nil {
+		t.Fatalf("probe: %v", r.Err)
+	}
+	if got, want := r.Signs(), "UAB"; got != want {
+		t.Errorf("Signs() = %q, want %q", got, want)
+	}
+	if got, want := r.Unpushed, 2; got != want {
+		t.Errorf("Unpushed = %d, want %d", got, want)
+	}
+	want := []BranchStatus{
+		{Name: "topic", Upstream: "origin/master", Unpushed: 2, Ahead: 5, Behind: 3, InWorktree: true},
+		{Name: "master", Upstream: "origin/master", Behind: 3},
+	}
+	if !slices.Equal(r.Branches, want) {
+		t.Errorf("Branches:\n got %+v\nwant %+v", r.Branches, want)
+	}
+}
+
+func TestProbeCombinesAttentionAcrossAllLocalBranches(t *testing.T) {
+	requireGit(t)
+	setupGitEnv(t)
+	repo, bare := syncedRepo(t)
+
+	// A tracked side branch has one commit both ahead of its upstream
+	// and present on no remote.
+	mustGit(t, repo, "checkout", "--quiet", "-b", "tracked")
+	mustGit(t, repo, "push", "--quiet", "--set-upstream", "origin", "tracked")
+	commitFile(t, repo, "tracked.txt", "local tracked\n", "ahead on tracked")
+
+	// A branch without an upstream carries a separate local-only
+	// commit and should sort before tracked branches.
+	mustGit(t, repo, "checkout", "--quiet", "-b", "local", "master")
+	commitFile(t, repo, "local.txt", "local only\n", "no upstream")
+	mustGit(t, repo, "checkout", "--quiet", "master")
+
+	// Advance origin/master elsewhere so the checked-out branch is
+	// behind while both side branches remain visible.
+	other := filepath.Join(tempDir(t), "other")
+	mustGit(t, filepath.Dir(other), "clone", "--quiet", bare, other)
+	commitFile(t, other, "remote.txt", "remote\n", "remote work")
+	mustGit(t, other, "push", "--quiet")
+	mustGit(t, repo, "fetch", "--quiet")
+
+	r := probeAlone(repo, Options{BranchDetails: true})
+	if r.Err != nil {
+		t.Fatalf("probe: %v", r.Err)
+	}
+	if got, want := r.Signs(), "UAB"; got != want {
+		t.Errorf("Signs() = %q, want %q", got, want)
+	}
+	want := []BranchStatus{
+		{Name: "local", Unpushed: 1},
+		{Name: "tracked", Upstream: "origin/tracked", Unpushed: 1, Ahead: 1},
+		{Name: "master", Upstream: "origin/master", Behind: 1, InWorktree: true},
+	}
+	if !slices.Equal(r.Branches, want) {
+		t.Errorf("Branches:\n got %+v\nwant %+v", r.Branches, want)
+	}
+
+	short := probeAlone(repo, Options{})
+	if got, want := short.Signs(), "UAB"; got != want {
+		t.Errorf("short-detail Signs() = %q, want %q", got, want)
+	}
+	if len(short.Branches) != 0 {
+		t.Errorf("short-detail probe gathered branch rows: %+v", short.Branches)
+	}
+}
+
+func TestProbeMarksConfiguredUpstreamWhoseRefIsGone(t *testing.T) {
+	requireGit(t)
+	setupGitEnv(t)
+	repo, _ := syncedRepo(t)
+	mustGit(t, repo, "checkout", "--quiet", "-b", "topic")
+	commitFile(t, repo, "topic.txt", "local\n", "local topic")
+	mustGit(t, repo, "config", "branch.topic.remote", "origin")
+	mustGit(t, repo, "config", "branch.topic.merge", "refs/heads/deleted-topic")
+	mustGit(t, repo, "checkout", "--quiet", "master")
+
+	r := probeAlone(repo, Options{BranchDetails: true})
+	if r.Err != nil {
+		t.Fatalf("probe: %v", r.Err)
+	}
+	want := BranchStatus{
+		Name: "topic", Upstream: "origin/deleted-topic", Unpushed: 1, UpstreamGone: true,
+	}
+	if len(r.Branches) != 1 || r.Branches[0] != want {
+		t.Errorf("Branches = %+v, want [%+v]", r.Branches, want)
+	}
+}
+
+func TestInspectBranchesReportsDetailFailure(t *testing.T) {
+	requireGit(t)
+	setupGitEnv(t)
+	repo, _ := syncedRepo(t)
+	refs := []branchRef{{Name: "missing"}}
+
+	_, _, _, err := inspectBranches(repo, refs, []string{"missing"}, Options{BranchDetails: true})
+	if err == nil {
+		t.Error("missing branch accepted while gathering per-branch detail")
 	}
 }
 
@@ -400,16 +574,13 @@ func TestGitEnvScrubsRepoLocation(t *testing.T) {
 	t.Setenv("GIT_WORK_TREE", "/somewhere")
 	t.Setenv("GIT_CONFIG_GLOBAL", "/kept")
 
-	env := gitEnv("GIT_TERMINAL_PROMPT=0")
+	env := gitEnv()
 	joined := strings.Join(env, "\n")
 	if strings.Contains(joined, "GIT_DIR=") || strings.Contains(joined, "GIT_WORK_TREE=") {
 		t.Errorf("repo-location variables not scrubbed:\n%s", joined)
 	}
 	if !strings.Contains(joined, "GIT_CONFIG_GLOBAL=/kept") {
 		t.Error("unrelated git variables must survive the scrub")
-	}
-	if env[len(env)-1] != "GIT_TERMINAL_PROMPT=0" {
-		t.Error("extra variables must be appended")
 	}
 }
 
@@ -609,7 +780,7 @@ func TestProbeIgnoredRepo(t *testing.T) {
 }
 
 // TestProbeIgnoreBranchGlobs: acknowledged branches disappear from
-// the count and the verbose detail together, are tallied for the
+// the count and the branch detail together, are tallied for the
 // summary disclosure, and come back under --no-ignores.
 func TestProbeIgnoreBranchGlobs(t *testing.T) {
 	requireGit(t)
@@ -622,7 +793,7 @@ func TestProbeIgnoreBranchGlobs(t *testing.T) {
 	mustGit(t, repo, "checkout", "--quiet", "master")
 	mustGit(t, repo, "config", "--add", "comb.ignoreBranch", "backup/*")
 
-	r := probeAlone(repo, Options{Verbose: true})
+	r := probeAlone(repo, Options{BranchDetails: true})
 	if r.Err != nil {
 		t.Fatalf("probe: %v", r.Err)
 	}
@@ -632,11 +803,11 @@ func TestProbeIgnoreBranchGlobs(t *testing.T) {
 	if r.AckedBranches != 1 {
 		t.Errorf("AckedBranches = %d, want 1", r.AckedBranches)
 	}
-	if len(r.UnpushedBranches) != 1 || r.UnpushedBranches[0].Name != "keep/y" {
-		t.Errorf("UnpushedBranches = %+v, want only keep/y", r.UnpushedBranches)
+	if len(r.Branches) != 1 || r.Branches[0].Name != "keep/y" {
+		t.Errorf("Branches = %+v, want only keep/y", r.Branches)
 	}
 
-	r = probeAlone(repo, Options{Verbose: true, NoIgnores: true})
+	r = probeAlone(repo, Options{BranchDetails: true, NoIgnores: true})
 	if r.Unpushed != 2 || r.AckedBranches != 0 {
 		t.Errorf("--no-ignores: Unpushed, AckedBranches = %d, %d; want 2, 0", r.Unpushed, r.AckedBranches)
 	}

@@ -1,7 +1,6 @@
 package comb
 
 import (
-	"strconv"
 	"strings"
 )
 
@@ -14,9 +13,10 @@ type worktreeStatus struct {
 	// Unborn means HEAD points at a branch with no commit yet — a
 	// fresh repository, or an orphan checkout in an old one.
 	Unborn bool
-	Ahead  int
-	Behind int
 	Dirty  bool
+	// Untracked counts individual untracked files. Status is invoked
+	// with -uall, so untracked directories are expanded into files.
+	Untracked int
 }
 
 // parseStatus reads porcelain v2 output, documented as stable in
@@ -43,34 +43,14 @@ func parseStatus(out string) worktreeStatus {
 			} else {
 				st.Branch = v
 			}
-		case strings.HasPrefix(line, "# branch.ab "):
-			st.Ahead, st.Behind = parseAheadBehind(strings.TrimPrefix(line, "# branch.ab "))
 		case strings.HasPrefix(line, "#"):
 		case strings.HasPrefix(line, "!"):
+		case strings.HasPrefix(line, "? "):
+			st.Dirty = true
+			st.Untracked++
 		default:
 			st.Dirty = true
 		}
 	}
 	return st
-}
-
-// parseAheadBehind reads the "+<ahead> -<behind>" payload.
-func parseAheadBehind(v string) (ahead, behind int) {
-	for _, f := range strings.Fields(v) {
-		switch {
-		case strings.HasPrefix(f, "+"):
-			ahead = atoiOrZero(f[1:])
-		case strings.HasPrefix(f, "-"):
-			behind = atoiOrZero(f[1:])
-		}
-	}
-	return ahead, behind
-}
-
-func atoiOrZero(s string) int {
-	n, err := strconv.Atoi(s)
-	if err != nil {
-		return 0
-	}
-	return n
 }
