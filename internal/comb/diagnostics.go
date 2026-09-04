@@ -11,7 +11,7 @@ import (
 	"time"
 )
 
-const diagnosticSchema = 1
+const diagnosticSchema = 2
 
 var diagnosticOperations = map[string]bool{
 	"branches": true, "classify_worktree": true, "config": true,
@@ -28,7 +28,7 @@ var diagnosticPhases = map[string]bool{
 
 var diagnosticCountNames = map[string]bool{
 	"directories": true, "entries": true, "groups": true,
-	"hidden_skipped": true, "linked_worktrees": true, "pruned": true,
+	"hidden_skipped": true, "depth_skipped": true, "linked_worktrees": true, "pruned": true,
 	"repositories": true, "unreadable": true,
 }
 
@@ -81,6 +81,7 @@ type DiagnosticOptions struct {
 	Fetch     bool   `json:"fetch"`
 	Hidden    bool   `json:"hidden"`
 	NoIgnores bool   `json:"no_ignores"`
+	MaxDepth  *int   `json:"max_depth,omitempty"`
 }
 
 // NewDiagnostics starts a versioned JSON Lines diagnostic stream.

@@ -87,9 +87,12 @@ func probe(git gitRunner, repo string, opts Options, carrier, linked bool) Repor
 	// Enumerating untracked files is the expensive part, so it is
 	// skipped when D was not asked for. Ahead/behind calculation and
 	// rename classification do not feed the status parser.
-	untracked := "-uall"
-	if !opts.Only.Has('D') {
-		untracked = "-uno"
+	untracked := "-uno"
+	if opts.Only.Has('D') {
+		untracked = "-unormal"
+		if opts.DirtyDetails {
+			untracked = "-uall"
+		}
 	}
 	out, err := git.out(repo, "status", "status", "--porcelain=v2", "--branch", "--no-ahead-behind", "--no-renames", untracked)
 	if err != nil {
@@ -100,10 +103,14 @@ func probe(git gitRunner, repo string, opts Options, carrier, linked bool) Repor
 	r.Dirty = st.Dirty
 	r.Branch = describeBranch(st)
 	if opts.DirtyDetails && r.Dirty {
-		// Detail is presentational: an unusual diff failure must not
-		// hide an otherwise valid dirty finding.
-		if stat, err := worktreeShortStat(git, repo, st); err == nil {
-			r.DirtyStat = stat
+		if !st.TrackedDirty {
+			r.DirtyStat = ShortStat{Untracked: st.Untracked}
+		} else {
+			// Detail is presentational: an unusual diff failure must not
+			// hide an otherwise valid dirty finding.
+			if stat, err := worktreeShortStat(git, repo, st); err == nil {
+				r.DirtyStat = stat
+			}
 		}
 	}
 

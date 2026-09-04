@@ -51,6 +51,8 @@ unreachable from any remote, stashes, and ahead/behind branches.
         --fetch          fetch all remotes first (may prompt), so behind
                          is current
         --hidden         descend into hidden and system directories
+        --max-depth N    descend at most N directories below each root
+                         (root is depth 0; default unlimited)
         --prune GLOB     skip directories matching GLOB (repeatable;
                          node_modules is always skipped)
         --no-ignores     disregard comb.ignore and comb.ignoreBranch
@@ -69,6 +71,7 @@ comb.except); comb.ignore and comb.ignoreBranch acknowledge repositories
 and branches per clone or globally. Command-line only and exclude filters
 replace their configured family; named filters combine, exclusions then
 subtract, and the summary discloses acknowledgments and narrowed selections.
+--max-depth is command-line-only so future scans cannot be silently limited.
 
 Exit status: 0 all clean, 1 findings, 2 errors.
 `
@@ -89,6 +92,7 @@ func run(args []string, stdout, stderr io.Writer) (code int) {
 		exceptSigns     string
 		onlyNamed       namedFilterFlags
 		excludeNamed    namedFilterFlags
+		maxDepth        = -1
 		showVersion     bool
 	)
 
@@ -103,6 +107,7 @@ func run(args []string, stdout, stderr io.Writer) (code int) {
 	fs.IntVar(&opts.Jobs, "jobs", comb.DefaultJobs(), "")
 	fs.IntVar(&opts.Jobs, "j", comb.DefaultJobs(), "")
 	fs.BoolVar(&opts.Hidden, "hidden", false, "")
+	fs.IntVar(&maxDepth, "max-depth", -1, "")
 	fs.Var(&opts.Prune, "prune", "")
 	fs.StringVar(&onlySigns, "only", "", "")
 	fs.StringVar(&onlySigns, "o", "", "")
@@ -138,6 +143,15 @@ func run(args []string, stdout, stderr io.Writer) (code int) {
 		fmt.Fprintf(stderr, "git-comb: %v\n", err)
 		fmt.Fprintln(stderr, "Try 'git comb --help' for more information.")
 		return 2
+	}
+	visited := map[string]bool{}
+	fs.Visit(func(f *flag.Flag) { visited[f.Name] = true })
+	if visited["max-depth"] {
+		if maxDepth < 0 {
+			fmt.Fprintln(stderr, "git-comb: --max-depth must be zero or greater")
+			return 2
+		}
+		opts.MaxDepth = &maxDepth
 	}
 	if showVersion {
 		fmt.Fprintln(stdout, "git-comb "+version)
@@ -202,8 +216,6 @@ func run(args []string, stdout, stderr io.Writer) (code int) {
 		fmt.Fprintf(stderr, "git-comb: config: %v\n", err)
 		return 2
 	}
-	visited := map[string]bool{}
-	fs.Visit(func(f *flag.Flag) { visited[f.Name] = true })
 	if settings.Jobs > 0 && !visited["j"] && !visited["jobs"] {
 		opts.Jobs = settings.Jobs
 	}
@@ -247,6 +259,7 @@ func run(args []string, stdout, stderr io.Writer) (code int) {
 			Roots: len(opts.Roots), Jobs: opts.Jobs, Prunes: len(opts.Prune),
 			Selection: opts.Only.String(), Short: short, All: opts.All,
 			Fetch: opts.Fetch, Hidden: opts.Hidden, NoIgnores: opts.NoIgnores,
+			MaxDepth: opts.MaxDepth,
 		})
 	}
 
@@ -310,7 +323,7 @@ func run(args []string, stdout, stderr io.Writer) (code int) {
 	if wroteReport {
 		fmt.Fprintln(stderr)
 	}
-	fmt.Fprintln(stderr, summary(len(reports), attention, failed, ackedRepos, ackedBranches, selectionLabel))
+	fmt.Fprintln(stderr, summary(len(reports), attention, failed, ackedRepos, ackedBranches, selectionLabel, opts.MaxDepth))
 
 	switch {
 	case failed > 0:
@@ -386,7 +399,7 @@ func expandShortFlags(args []string) []string {
 // pure finding list. A narrowed selection is integrated into the main
 // sentence using state names; the sign vocabulary stays an optional
 // shorthand rather than the primary interface.
-func summary(repos, attention, failed, ackedRepos, ackedBranches int, selection string) string {
+func summary(repos, attention, failed, ackedRepos, ackedBranches int, selection string, maxDepth *int) string {
 	noun := "repositories"
 	if repos == 1 {
 		noun = "repository"
@@ -406,6 +419,9 @@ func summary(repos, attention, failed, ackedRepos, ackedBranches int, selection 
 		s += fmt.Sprintf(", %d failed", failed)
 	}
 	var qualifications []string
+	if maxDepth != nil {
+		qualifications = append(qualifications, fmt.Sprintf("scan limited to depth %d", *maxDepth))
+	}
 	if ackedRepos > 0 || ackedBranches > 0 {
 		var parts []string
 		if ackedRepos > 0 {

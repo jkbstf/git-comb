@@ -84,6 +84,7 @@ _git_comb_options ()
 		'--jobs:set repository probe parallelism'
 		'--fetch:fetch all remotes first'
 		'--hidden:descend into hidden and system directories'
+		'--max-depth:limit directory descent below each root'
 		'--prune:skip directories matching a glob'
 		'--no-ignores:disregard configured acknowledgments'
 		'--color:control colored output'
@@ -130,6 +131,10 @@ _git_comb ()
 			_git_comb_values 1 2 4 8 16
 			return
 			;;
+		--max-depth)
+			_git_comb_values 0 1 2 3 4 5
+			return
+			;;
 		--only|-o|--except|-x)
 			_git_comb_signs
 			return
@@ -152,6 +157,10 @@ _git_comb ()
 		--jobs=*)
 			compset -P '--jobs='
 			_git_comb_values 1 2 4 8 16
+			;;
+		--max-depth=*)
+			compset -P '--max-depth='
+			_git_comb_values 0 1 2 3 4 5
 			;;
 		--only=*|--except=*)
 			compset -P '*='

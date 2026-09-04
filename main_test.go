@@ -101,10 +101,50 @@ func TestRunHelp(t *testing.T) {
 	if code := run([]string{"--help"}, &stdout, &stderr); code != 0 {
 		t.Errorf("exit = %d, want 0", code)
 	}
-	for _, want := range []string{"Usage: git comb", "--short", "--only-dirty", "--exclude-dirty", "--fetch", "--diagnostics", "Exit status"} {
+	for _, want := range []string{"Usage: git comb", "--short", "--only-dirty", "--exclude-dirty", "--fetch", "--max-depth", "--diagnostics", "Exit status"} {
 		if !strings.Contains(stdout.String(), want) {
 			t.Errorf("help output missing %q", want)
 		}
+	}
+}
+
+func TestRunRejectsNegativeMaxDepth(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	if code := run([]string{"--max-depth", "-1"}, &stdout, &stderr); code != 2 {
+		t.Fatalf("exit = %d, want 2", code)
+	}
+	if !strings.Contains(stderr.String(), "--max-depth must be zero or greater") {
+		t.Errorf("stderr = %q", stderr.String())
+	}
+}
+
+func TestRunMaxDepthLimitsAndDisclosesScan(t *testing.T) {
+	isolateConfig(t)
+	base := t.TempDir()
+	child := filepath.Join(base, "child")
+	gitInit(t, child)
+	var stdout, stderr bytes.Buffer
+
+	if code := run([]string{"--short", "--max-depth", "0", base}, &stdout, &stderr); code != 0 {
+		t.Fatalf("depth 0 exit = %d: %s", code, stderr.String())
+	}
+	if stdout.Len() != 0 {
+		t.Errorf("depth 0 stdout = %q, want empty", stdout.String())
+	}
+	if !strings.Contains(stderr.String(), "scan limited to depth 0") {
+		t.Errorf("depth 0 summary = %q", stderr.String())
+	}
+
+	stdout.Reset()
+	stderr.Reset()
+	if code := run([]string{"--short", "--max-depth=1", base}, &stdout, &stderr); code != 1 {
+		t.Fatalf("depth 1 exit = %d: %s", code, stderr.String())
+	}
+	if !strings.Contains(stdout.String(), "child") {
+		t.Errorf("depth 1 stdout = %q, want child repository", stdout.String())
+	}
+	if !strings.Contains(stderr.String(), "scan limited to depth 1") {
+		t.Errorf("depth 1 summary = %q", stderr.String())
 	}
 }
 
@@ -490,11 +530,15 @@ func TestSummary(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.want, func(t *testing.T) {
-			got := summary(tt.repos, tt.attention, tt.failed, tt.ackedRepos, tt.ackedBranches, tt.signs)
+			got := summary(tt.repos, tt.attention, tt.failed, tt.ackedRepos, tt.ackedBranches, tt.signs, nil)
 			if got != tt.want {
 				t.Errorf("summary = %q, want %q", got, tt.want)
 			}
 		})
+	}
+	depth := 2
+	if got, want := summary(3, 0, 0, 1, 0, "", &depth), "combed 3 repositories: 0 need attention (scan limited to depth 2, 1 repository acknowledged)"; got != want {
+		t.Errorf("depth summary = %q, want %q", got, want)
 	}
 }
 

@@ -164,6 +164,34 @@ func TestProbeUntrackedOnlyIsDirty(t *testing.T) {
 	}
 }
 
+func TestProbeUntrackedOnlyDetailsNeedNoDiffProcess(t *testing.T) {
+	requireGit(t)
+	setupGitEnv(t)
+	repo, _ := syncedRepo(t)
+	if err := os.MkdirAll(filepath.Join(repo, "untracked"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, filepath.Join(repo, "untracked", "one.txt"), "one\n")
+	writeFile(t, filepath.Join(repo, "untracked", "two.txt"), "two\n")
+	diagnostics, events := testDiagnostics(t)
+
+	r := probeAlone(repo, Options{DirtyDetails: true, Diagnostics: diagnostics})
+	if r.Err != nil {
+		t.Fatalf("probe: %v", r.Err)
+	}
+	if want := (ShortStat{Untracked: 2}); r.DirtyStat != want {
+		t.Errorf("DirtyStat = %+v, want %+v", r.DirtyStat, want)
+	}
+	if got := diagnosticOperationCount(events, "dirty_diff"); got != 0 {
+		t.Errorf("untracked-only diff processes = %d, want 0", got)
+	}
+
+	short := probeAlone(repo, Options{})
+	if !short.Dirty {
+		t.Error("normal untracked scan missed files inside an untracked directory")
+	}
+}
+
 func TestProbeDirtyStatIncludesStagedUnstagedAndUntracked(t *testing.T) {
 	requireGit(t)
 	setupGitEnv(t)
@@ -1034,6 +1062,49 @@ func TestScanRootIsARepo(t *testing.T) {
 	}
 	if len(got) != 1 || got[0] != root {
 		t.Errorf("Scan = %v, want [%s]", got, root)
+	}
+}
+
+func TestScanMaxDepthStartsAtEachRoot(t *testing.T) {
+	requireGit(t)
+	setupGitEnv(t)
+	root := filepath.Join(tempDir(t), "root")
+	child := filepath.Join(root, "child")
+	grandchild := filepath.Join(child, "grandchild")
+	for _, repo := range []string{root, child, grandchild} {
+		initRepo(t, repo)
+	}
+
+	zero := 0
+	got, stats, err := scan([]string{root}, false, nil, &zero, nil)
+	if err != nil {
+		t.Fatalf("scan depth 0: %v", err)
+	}
+	if !slices.Equal(got, []string{root}) {
+		t.Errorf("depth 0 = %v, want [%s]", got, root)
+	}
+	if stats.depthSkipped == 0 {
+		t.Error("depth-limited directories were not counted")
+	}
+
+	one := 1
+	got, _, err = scan([]string{root}, false, nil, &one, nil)
+	if err != nil {
+		t.Fatalf("scan depth 1: %v", err)
+	}
+	slices.Sort(got)
+	if want := []string{root, child}; !slices.Equal(got, want) {
+		t.Errorf("depth 1 = %v, want %v", got, want)
+	}
+
+	// Each explicit root starts again at depth zero.
+	got, _, err = scan([]string{root, grandchild}, false, nil, &zero, nil)
+	if err != nil {
+		t.Fatalf("scan two depth-0 roots: %v", err)
+	}
+	slices.Sort(got)
+	if want := []string{root, grandchild}; !slices.Equal(got, want) {
+		t.Errorf("two depth-0 roots = %v, want %v", got, want)
 	}
 }
 

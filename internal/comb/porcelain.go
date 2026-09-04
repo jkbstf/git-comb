@@ -14,8 +14,13 @@ type worktreeStatus struct {
 	// fresh repository, or an orphan checkout in an old one.
 	Unborn bool
 	Dirty  bool
-	// Untracked counts individual untracked files. Status is invoked
-	// with -uall, so untracked directories are expanded into files.
+	// TrackedDirty distinguishes index/worktree changes from a repository
+	// whose only dirt is untracked files. The latter needs no diff process
+	// for detailed statistics.
+	TrackedDirty bool
+	// Untracked counts individual files in detailed mode, where status uses
+	// -uall. Short mode may collapse directories because it only consumes
+	// Dirty, never this count.
 	Untracked int
 }
 
@@ -50,6 +55,7 @@ func parseStatus(out string) worktreeStatus {
 			st.Untracked++
 		default:
 			st.Dirty = true
+			st.TrackedDirty = true
 		}
 	}
 	return st

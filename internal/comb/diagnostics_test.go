@@ -75,6 +75,12 @@ func TestDiagnosticsConcurrentStreamIsValidAndAnonymous(t *testing.T) {
 		}
 		assertDiagnosticSchema(t, i+1, event)
 	}
+	var start struct {
+		Schema int `json:"schema"`
+	}
+	if err := json.Unmarshal([]byte(lines[0]), &start); err != nil || start.Schema != 2 {
+		t.Fatalf("diagnostic schema = %d, %v; want 2", start.Schema, err)
+	}
 	if !strings.Contains(lines[0], `"event":"run_start"`) || !strings.Contains(lines[len(lines)-1], `"event":"run_end"`) {
 		t.Fatalf("stream boundaries missing:\nfirst: %s\nlast: %s", lines[0], lines[len(lines)-1])
 	}
@@ -117,12 +123,12 @@ func assertDiagnosticSchema(t *testing.T, line int, event map[string]any) {
 
 	if options, ok := event["options"].(map[string]any); ok {
 		assertDiagnosticObjectKeys(t, line, "options", options, []string{
-			"roots", "jobs", "prunes", "selection", "short", "all", "fetch", "hidden", "no_ignores",
+			"roots", "jobs", "prunes", "selection", "short", "all", "fetch", "hidden", "no_ignores", "max_depth",
 		})
 	}
 	if counts, ok := event["counts"].(map[string]any); ok {
 		assertDiagnosticObjectKeys(t, line, "counts", counts, []string{
-			"repositories", "entries", "directories", "hidden_skipped", "pruned", "unreadable", "groups", "linked_worktrees",
+			"repositories", "entries", "directories", "hidden_skipped", "depth_skipped", "pruned", "unreadable", "groups", "linked_worktrees",
 		})
 	}
 	if operations, ok := event["operations"].([]any); ok {

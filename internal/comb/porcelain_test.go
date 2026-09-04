@@ -46,9 +46,10 @@ func TestParseStatus(t *testing.T) {
 				"# branch.head master\n" +
 				"1 M. N... 100644 100644 100644 aaaa bbbb file.txt\n",
 			want: worktreeStatus{
-				Branch: "master",
-				OID:    "4a3b2c1d4a3b2c1d4a3b2c1d4a3b2c1d4a3b2c1d",
-				Dirty:  true,
+				Branch:       "master",
+				OID:          "4a3b2c1d4a3b2c1d4a3b2c1d4a3b2c1d4a3b2c1d",
+				Dirty:        true,
+				TrackedDirty: true,
 			},
 		},
 		{
@@ -57,9 +58,10 @@ func TestParseStatus(t *testing.T) {
 				"# branch.head master\n" +
 				"2 R. N... 100644 100644 100644 aaaa bbbb R100 new.txt\told.txt\n",
 			want: worktreeStatus{
-				Branch: "master",
-				OID:    "4a3b2c1d4a3b2c1d4a3b2c1d4a3b2c1d4a3b2c1d",
-				Dirty:  true,
+				Branch:       "master",
+				OID:          "4a3b2c1d4a3b2c1d4a3b2c1d4a3b2c1d4a3b2c1d",
+				Dirty:        true,
+				TrackedDirty: true,
 			},
 		},
 		{
@@ -68,9 +70,10 @@ func TestParseStatus(t *testing.T) {
 				"# branch.head master\n" +
 				"u UU N... 100644 100644 100644 100644 aaaa bbbb cccc conflicted.txt\n",
 			want: worktreeStatus{
-				Branch: "master",
-				OID:    "4a3b2c1d4a3b2c1d4a3b2c1d4a3b2c1d4a3b2c1d",
-				Dirty:  true,
+				Branch:       "master",
+				OID:          "4a3b2c1d4a3b2c1d4a3b2c1d4a3b2c1d4a3b2c1d",
+				Dirty:        true,
+				TrackedDirty: true,
 			},
 		},
 		{

@@ -167,6 +167,7 @@ visible.
 | `-x, --except SIGNS` | exclude sign classes, e.g. `-xAB` |
 | `-j, --jobs N` | probe N repositories in parallel |
 | `--hidden` | descend into dot-prefixed and platform-hidden/system directories |
+| `--max-depth N` | descend at most `N` directories below each root; the root is depth 0 |
 | `--prune GLOB` | skip directories matching GLOB (repeatable) |
 | `--no-ignores` | disregard `comb.ignore` and `comb.ignoreBranch` |
 | `--color WHEN` | `auto` (default), `always`, or `never` |
@@ -374,6 +375,9 @@ counts them (`1 repository and 13 branches acknowledged`), and
 
 - Scanning goes downward from each directory, including through repositories
   to find nested checkouts. Choose the starting directory to define the scope.
+- Scanning is unlimited by default. `--max-depth N` applies only to the current
+  invocation and the summary discloses the limit; there is deliberately no Git
+  configuration key that could make future scans silently incomplete.
 - Bare repositories (a directory that *is* a git dir, with no
   worktree) are not scanned.
 - The detailed default gathers diff statistics for dirty repositories

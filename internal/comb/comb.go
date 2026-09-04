@@ -34,6 +34,9 @@ type Options struct {
 	All bool
 	// Hidden descends into hidden directories during discovery.
 	Hidden bool
+	// MaxDepth limits descent relative to each root. Nil is unlimited; zero
+	// inspects only a root itself. It is intentionally command-line-only.
+	MaxDepth *int
 	// Jobs bounds how many repositories are probed concurrently.
 	Jobs int
 	// Prune lists directory names never descended into.
@@ -128,11 +131,11 @@ func Run(opts Options) ([]Report, error) {
 		started = time.Now()
 	}
 	reportProgress(opts.Progress, ProgressEvent{Kind: ProgressPhase, Phase: "scanning"})
-	repos, stats, err := scan(opts.Roots, opts.Hidden, opts.Prune, opts.Progress)
+	repos, stats, err := scan(opts.Roots, opts.Hidden, opts.Prune, opts.MaxDepth, opts.Progress)
 	if opts.Diagnostics != nil {
 		opts.Diagnostics.Phase("discovery", started, map[string]int{
 			"entries": stats.entries, "directories": stats.directories,
-			"hidden_skipped": stats.hiddenSkipped, "pruned": stats.pruned,
+			"hidden_skipped": stats.hiddenSkipped, "depth_skipped": stats.depthSkipped, "pruned": stats.pruned,
 			"unreadable": stats.unreadable, "repositories": len(repos),
 		})
 	}

@@ -4,7 +4,7 @@
 # extension point Git uses for external subcommands, while the registration at
 # the bottom also completes the git-comb executable directly.
 
-__git_comb_options='--short --all --only-dirty --only-unpushed --only-ahead --only-behind --only-stashed --only-empty --only-local --only-offline --exclude-dirty --exclude-unpushed --exclude-ahead --exclude-behind --exclude-stashed --exclude-empty --exclude-local --exclude-offline --only --except --jobs --fetch --hidden --prune --no-ignores --color --diagnostics --version --help'
+__git_comb_options='--short --all --only-dirty --only-unpushed --only-ahead --only-behind --only-stashed --only-empty --only-local --only-offline --exclude-dirty --exclude-unpushed --exclude-ahead --exclude-behind --exclude-stashed --exclude-empty --exclude-local --exclude-offline --only --except --jobs --fetch --hidden --max-depth --prune --no-ignores --color --diagnostics --version --help'
 
 __git_comb_words ()
 {
@@ -62,6 +62,10 @@ _git_comb ()
 			__git_comb_words "$current" '1 2 4 8 16'
 			return
 			;;
+		--max-depth)
+			__git_comb_words "$current" '0 1 2 3 4 5'
+			return
+			;;
 		--only|-o|--except|-x)
 			__git_comb_signs "$current"
 			return
@@ -86,6 +90,11 @@ _git_comb ()
 			prefix=--jobs=
 			value=${current#*=}
 			__git_comb_words "$value" '1 2 4 8 16' "$prefix"
+			;;
+		--max-depth=*)
+			prefix=--max-depth=
+			value=${current#*=}
+			__git_comb_words "$value" '0 1 2 3 4 5' "$prefix"
 			;;
 		--only=*|--except=*)
 			prefix=${current%%=*}=
