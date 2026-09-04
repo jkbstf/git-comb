@@ -9,17 +9,15 @@ a detached HEAD, and ahead/behind state across every local branch.
 
 ```
 $ git comb ~/Projects
-Uncommitted changes:
-  website  [main]  2 files changed: +5/-1, 1 untracked file
+paperwork  [main]
+  stash  1 stash
 
-Branches:
-  website
-      feature/homepage                 2 unpushed commits, no upstream
-  tools/scanner
-    * main              [origin/main]  1 unpushed commit
+tools/scanner  [main]
+  branch  * main  [origin/main]  1 unpushed commit
 
-Stashes:
-  paperwork  1 stash
+website  [main]
+  working tree  2 files changed: +5/-1, 1 untracked file
+  branch        feature/homepage  2 unpushed commits, no upstream
 
 combed 25 repositories: 3 need attention
 ```
@@ -121,21 +119,25 @@ repositories in temporary directories and skip when git is absent.
 git comb [OPTION]... [DIR]...
 ```
 
-With no directories, the current directory is combed. Only
-repositories needing attention are printed. The default view groups
-worktree and repository findings by state, while `U`, `A`, and `B` are
-combined into one branch-oriented section. Each branch appears there
-once, with its configured upstream and a concise description of what
-needs attention. A repository can still appear in more than one
-section, while the summary counts it once. Paths are relative to the
-nearest directory passed for scanning. Use `--short` for the compact
-sign view with one line per repository.
+With no directories, the current directory is combed. Only repositories
+needing attention are printed. The default view keeps every finding for a
+repository in one block. Its working-tree, branch, stash, remote, and empty
+state rows appear in risk-first order; each affected branch appears once with
+its configured upstream and a concise description of what needs attention.
+Paths are relative to the nearest directory passed for scanning. Use `--short`
+for the compact sign view with one line per repository.
+
+Both views print completed repositories incrementally while the remaining
+repositories are checked in parallel. On an interactive terminal, a transient
+stderr status shows discovery and checking progress without contaminating
+pipeable stdout. Fast runs finish before it appears. Redirected output contains
+no animation or terminal control sequences.
 
 Dirty repositories include a `git diff --shortstat`-style summary of
 tracked changes. Untracked files are counted separately in the same
 summary because Git diffs normally omit them. Names, ref context in
 square brackets, and quantitative details occupy separate aligned
-columns within each section. Like Git's diffstat, the grouped view uses
+columns within each repository. Like Git's diffstat, the detailed view uses
 the detected terminal width and falls back to 80 columns. Long paths
 and refs are shortened independently in the middle so both ends stay
 visible.
@@ -164,7 +166,7 @@ visible.
 | `-o, --only SIGNS` | advanced shorthand for combining sign classes, e.g. `-oDUS` |
 | `-x, --except SIGNS` | exclude sign classes, e.g. `-xAB` |
 | `-j, --jobs N` | probe N repositories in parallel |
-| `--hidden` | descend into hidden directories |
+| `--hidden` | descend into dot-prefixed and platform-hidden/system directories |
 | `--prune GLOB` | skip directories matching GLOB (repeatable) |
 | `--no-ignores` | disregard `comb.ignore` and `comb.ignoreBranch` |
 | `--color WHEN` | `auto` (default), `always`, or `never` |
@@ -238,7 +240,7 @@ U      tools/scanner
 
 The short view deliberately omits branch names: `U`, `A`, and `B` can
 concern any local branch, not necessarily the one checked out in that
-worktree. The grouped default lists every affected branch once. A
+worktree. The detailed default lists every affected branch once. A
 branch without an upstream is shown first; for tracked branches, square
 brackets contain only the configured upstream. The final column
 describes unpushed, ahead, and behind commits. When commits exist on no
@@ -288,7 +290,7 @@ selection in their respective family, and exclusions are applied last.
 |---|---|
 | `comb.prune` (multi-valued) | directory-name globs to skip, like `--prune` |
 | `comb.jobs` | default probe parallelism |
-| `comb.hidden` | descend into hidden directories by default |
+| `comb.hidden` | descend into dot-prefixed and platform-hidden/system directories by default |
 | `comb.onlyDirty` | include uncommitted changes in the standing only selection |
 | `comb.onlyUnpushed` | include commits that exist on no remote |
 | `comb.onlyAhead` | include branches ahead of their upstream |
@@ -355,9 +357,10 @@ counts them (`1 repository and 13 branches acknowledged`), and
   its own files and its own detached-HEAD commits.
 - Probes ignore inherited `GIT_DIR`/`GIT_WORK_TREE`, so running from
   a git hook or an exported shell cannot redirect the scan.
-- Hidden directories and `node_modules` are skipped during discovery;
-  `--prune` extends the skip list, `--hidden` narrows it. Symlinked
-  roots are resolved before walking.
+- Dot-prefixed directories, macOS Finder-hidden directories, Windows
+  hidden/system directories, and `node_modules` are skipped during discovery;
+  `--prune` extends the skip list and `--hidden` descends into hidden trees.
+  Symlinked roots are resolved before walking.
 - Repositories are probed in parallel; a repository that cannot be
   probed becomes a reported `!` finding (exit 2), never an aborted
   scan.
@@ -365,16 +368,16 @@ counts them (`1 repository and 13 branches acknowledged`), and
 
 ## Notes
 
-- Scanning goes downward from each directory: run `git comb` at the
-  top of your projects tree, not inside one repository.
+- Scanning goes downward from each directory, including through repositories
+  to find nested checkouts. Choose the starting directory to define the scope.
 - Bare repositories (a directory that *is* a git dir, with no
   worktree) are not scanned.
-- The grouped default gathers diff statistics for dirty repositories
+- The detailed default gathers diff statistics for dirty repositories
   and exact local-only and upstream-divergence counts for affected
   branches. The short view skips those detailed counts. Branch
   histories may overlap, so per-branch local-only counts are not
   intended to be added together.
-- The summary line goes to stderr; stdout carries grouped findings.
+- The summary line goes to stderr; stdout carries repository findings.
   With `--short`, stdout contains one repository per line.
 
 ## License

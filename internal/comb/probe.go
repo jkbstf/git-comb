@@ -8,21 +8,30 @@ import (
 	"time"
 )
 
-// fetchMu keeps interactive authentication usable when several
-// repositories are probed concurrently. Local probes remain parallel,
-// but only one fetch may own the terminal at a time.
-var fetchMu sync.Mutex
+// terminalMu keeps interactive authentication usable while probes and
+// incremental result rendering proceed concurrently. Local probes remain
+// parallel, but a fetch prompt and durable output never own the terminal at
+// the same time.
+var terminalMu sync.Mutex
+
+// WithTerminal runs a short durable-output operation without colliding with
+// an interactive fetch prompt.
+func WithTerminal(fn func()) {
+	terminalMu.Lock()
+	defer terminalMu.Unlock()
+	fn()
+}
 
 func fetch(git gitRunner, repo string) error {
 	var waiting time.Time
 	if git.diagnostics != nil {
 		waiting = time.Now()
 	}
-	fetchMu.Lock()
+	terminalMu.Lock()
 	if git.diagnostics != nil {
 		git.diagnostics.Wait(repo, "fetch", waiting)
 	}
-	defer fetchMu.Unlock()
+	defer terminalMu.Unlock()
 	_, err := git.out(repo, "fetch", "fetch", "--all", "--quiet")
 	return err
 }

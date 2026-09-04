@@ -75,17 +75,110 @@ func colors(enabled bool) renderColors {
 
 // Render writes the selected view and returns the number of unique
 // repositories needing attention and the number that could not be
-// probed. The default view groups repositories by state; Short keeps
-// the compact sign view used before v0.4.
+// probed. The default view keeps each repository's findings together;
+// Short keeps the compact sign view used before v0.4.
 func Render(w io.Writer, reports []Report, opts RenderOptions) (attention, failed int) {
 	attention, failed = countResults(reports, opts.Only)
 	paths := newDisplayPaths(opts.Roots)
 	if opts.Short {
 		renderShort(w, reports, opts, paths)
 	} else {
-		renderGrouped(w, reports, opts, paths)
+		renderDetailed(w, reports, opts, paths)
 	}
 	return attention, failed
+}
+
+func renderDetailed(w io.Writer, reports []Report, opts RenderOptions, paths displayPaths) {
+	c := colors(opts.Color)
+	width := normalizedRenderWidth(opts.Width)
+	wrote := false
+	for _, report := range reports {
+		if !repositoryBlockSelected(report, opts) {
+			continue
+		}
+		if wrote {
+			fmt.Fprintln(w)
+		}
+		renderRepositoryBlock(w, report, opts, paths, c, width)
+		wrote = true
+	}
+}
+
+func repositoryBlockSelected(report Report, opts RenderOptions) bool {
+	if report.Ignored {
+		return false
+	}
+	return report.Err != nil || opts.Only.Filter(report.Signs()) != "" || opts.All
+}
+
+func renderRepositoryBlock(w io.Writer, report Report, opts RenderOptions, paths displayPaths, c renderColors, width int) {
+	pathColor := ""
+	if report.Err != nil || opts.Only.Filter(report.Signs()) != "" {
+		pathColor = c.red
+	}
+	header := repoTableRow("", paths.forRepo(report.Path), report.Branch, pathColor, c)
+	writeTable(w, []tableRow{header}, width)
+
+	if report.Err != nil {
+		writeTable(w, []tableRow{repositoryDetailRow("inspection", report.Err.Error())}, width)
+		return
+	}
+
+	var rows []tableRow
+	if opts.Only.Has('D') && report.Dirty {
+		rows = append(rows, repositoryDetailRow("working tree", formatShortStat(report.DirtyStat)))
+	}
+	if opts.Only.Has('L') && report.NoRemote {
+		rows = append(rows, repositoryDetailRow("remotes", "none configured"))
+	}
+	for _, branch := range selectedBranches(report.Branches, opts.Only) {
+		rows = append(rows, repositoryBranchRow(branch, report.Branch, c))
+	}
+	if opts.Only.Has('S') && report.Stashes > 0 {
+		rows = append(rows, repositoryDetailRow("stash", fmt.Sprintf("%d %s", report.Stashes, plural(report.Stashes, "stash", "stashes"))))
+	}
+	if opts.Only.Has('E') && report.Empty {
+		rows = append(rows, repositoryDetailRow("repository", "empty"))
+	}
+	if opts.Only.Has('O') && report.FetchFailed {
+		rows = append(rows, repositoryDetailRow("fetch", "one or more remotes unreachable"))
+	}
+	if len(rows) == 0 && opts.All {
+		rows = append(rows, repositoryDetailRow("status", "clean"))
+	}
+	writeTable(w, rows, width)
+}
+
+func repositoryDetailRow(label, detail string) tableRow {
+	return tableRow{
+		subject: []labelSegment{{text: "  " + label}},
+		detail:  detail,
+	}
+}
+
+func repositoryBranchRow(branch BranchStatus, current string, c renderColors) tableRow {
+	marker := "  "
+	branchColor, branchReset := "", ""
+	if branch.Detached || branch.Name == current {
+		marker = "* "
+		if !branch.Detached {
+			branchColor, branchReset = c.green, c.reset
+		}
+	} else if branch.InWorktree {
+		marker = "+ "
+	}
+	row := tableRow{subject: []labelSegment{
+		{text: "  branch  " + marker},
+		{text: branch.Name, color: branchColor, reset: branchReset, trimmable: true, minimumTrimWidth: 12},
+	}, detail: branchDetail(branch)}
+	if branch.Upstream != "" {
+		row.context = []labelSegment{
+			{text: "["},
+			{text: branch.Upstream, trimmable: true, minimumTrimWidth: 12},
+			{text: "]"},
+		}
+	}
+	return row
 }
 
 func countResults(reports []Report, only SignSet) (attention, failed int) {
@@ -125,137 +218,6 @@ func renderShort(w io.Writer, reports []Report, opts RenderOptions, paths displa
 			continue
 		}
 		fmt.Fprintf(w, "%s%-*s%s %s\n", c.red, signColumn, signs, c.reset, path)
-	}
-}
-
-type findingGroup struct {
-	sign  byte
-	title string
-	// showHead adds the current ref context for worktree-specific
-	// findings. Repository-wide findings deliberately omit it.
-	showHead bool
-}
-
-var findingGroups = []findingGroup{
-	{sign: 'S', title: "Stashes:"},
-	{sign: 'E', title: "Empty repositories:"},
-	{sign: 'O', title: "Unreachable remotes:"},
-}
-
-func renderGrouped(w io.Writer, reports []Report, opts RenderOptions, paths displayPaths) {
-	c := colors(opts.Color)
-	width := normalizedRenderWidth(opts.Width)
-	wroteSection := false
-
-	if opts.Only.Has('D') {
-		renderFindingGroup(w, reports, paths, c, width,
-			findingGroup{sign: 'D', title: "Uncommitted changes:", showHead: true}, &wroteSection)
-	}
-	if opts.Only.Has('L') {
-		renderFindingGroup(w, reports, paths, c, width,
-			findingGroup{sign: 'L', title: "No remotes:"}, &wroteSection)
-	}
-	renderBranchSection(w, reports, opts, paths, c, width, &wroteSection)
-	for _, group := range findingGroups {
-		if opts.Only.Has(group.sign) {
-			renderFindingGroup(w, reports, paths, c, width, group, &wroteSection)
-		}
-	}
-
-	if opts.All {
-		var clean []Report
-		for _, r := range reports {
-			if !r.Ignored && r.Err == nil && opts.Only.Filter(r.Signs()) == "" {
-				clean = append(clean, r)
-			}
-		}
-		if len(clean) > 0 {
-			writeSectionStart(w, "Clean repositories:", &wroteSection)
-			rows := make([]tableRow, 0, len(clean))
-			for _, r := range clean {
-				rows = append(rows, repoTableRow("  ", paths.forRepo(r.Path), r.Branch, "", c))
-			}
-			writeTable(w, rows, width)
-		}
-	}
-
-	var broken []Report
-	for _, r := range reports {
-		if !r.Ignored && r.Err != nil {
-			broken = append(broken, r)
-		}
-	}
-	if len(broken) > 0 {
-		writeSectionStart(w, "Inspection failures:", &wroteSection)
-		for _, r := range broken {
-			label, _ := fitLabel([]labelSegment{
-				{text: "  "},
-				{text: paths.forRepo(r.Path), color: c.red, reset: c.reset, trimmable: true, minimumTrimWidth: 12},
-			}, width)
-			fmt.Fprintf(w, "%s: %v\n", label, r.Err)
-		}
-	}
-}
-
-func renderFindingGroup(w io.Writer, reports []Report, paths displayPaths, c renderColors, width int, group findingGroup, wroteSection *bool) {
-	members := reportsForSign(reports, group.sign)
-	if len(members) == 0 {
-		return
-	}
-	writeSectionStart(w, group.title, wroteSection)
-	rows := make([]tableRow, 0, len(members))
-	for _, r := range members {
-		branch := ""
-		if group.showHead {
-			branch = r.Branch
-		}
-		row := repoTableRow("  ", paths.forRepo(r.Path), branch, c.red, c)
-		row.detail = findingDetail(r, group.sign)
-		rows = append(rows, row)
-	}
-	writeTable(w, rows, width)
-}
-
-func renderBranchSection(w io.Writer, reports []Report, opts RenderOptions, paths displayPaths, c renderColors, width int, wroteSection *bool) {
-	if !opts.Only.Has('U') && !opts.Only.Has('A') && !opts.Only.Has('B') {
-		return
-	}
-	type branchReport struct {
-		report   Report
-		branches []BranchStatus
-	}
-	var members []branchReport
-	for _, r := range reports {
-		if r.Ignored || r.Err != nil {
-			continue
-		}
-		branches := selectedBranches(r.Branches, opts.Only)
-		if len(branches) > 0 {
-			members = append(members, branchReport{report: r, branches: branches})
-		}
-	}
-	if len(members) == 0 {
-		return
-	}
-
-	writeSectionStart(w, "Branches:", wroteSection)
-	var allRows []tableRow
-	for _, member := range members {
-		for _, branch := range member.branches {
-			allRows = append(allRows, branchTableRow(branch, member.report.Branch, c))
-		}
-	}
-	layout := layoutTable(allRows, width)
-	for _, member := range members {
-		r := member.report
-		label, _ := fitLabel([]labelSegment{
-			{text: "  "},
-			{text: paths.forRepo(r.Path), color: c.red, reset: c.reset, trimmable: true, minimumTrimWidth: 12},
-		}, width)
-		fmt.Fprintln(w, label)
-		for _, branch := range member.branches {
-			writeTableRow(w, branchTableRow(branch, r.Branch, c), layout)
-		}
 	}
 }
 
@@ -538,31 +500,6 @@ func middleTrim(s string, width int) string {
 	return string(runes[:left]) + "..." + string(runes[len(runes)-right:])
 }
 
-func reportsForSign(reports []Report, sign byte) []Report {
-	var matching []Report
-	for _, r := range reports {
-		if r.Ignored || r.Err != nil {
-			continue
-		}
-		if strings.IndexByte(r.Signs(), sign) >= 0 {
-			matching = append(matching, r)
-		}
-	}
-	return matching
-}
-
-func findingDetail(r Report, sign byte) string {
-	switch sign {
-	case 'D':
-		if summary := formatShortStat(r.DirtyStat); summary != "" {
-			return summary
-		}
-	case 'S':
-		return fmt.Sprintf("%d %s", r.Stashes, plural(r.Stashes, "stash", "stashes"))
-	}
-	return ""
-}
-
 func formatShortStat(stat ShortStat) string {
 	var parts []string
 	if stat.FilesChanged > 0 {
@@ -619,14 +556,6 @@ func (roots displayPaths) forRepo(repo string) string {
 		return best
 	}
 	return repo
-}
-
-func writeSectionStart(w io.Writer, title string, wroteSection *bool) {
-	if *wroteSection {
-		fmt.Fprintln(w)
-	}
-	fmt.Fprintln(w, title)
-	*wroteSection = true
 }
 
 func plural(n int, one, many string) string {

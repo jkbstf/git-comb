@@ -22,10 +22,10 @@ type Options struct {
 	// authentication when needed, so behind is current.
 	Fetch bool
 	// BranchDetails gathers per-branch unpushed and upstream divergence
-	// counts for the grouped view. The short view leaves this false to
+	// counts for the detailed view. The short view leaves this false to
 	// keep probing lighter.
 	BranchDetails bool
-	// DirtyDetails gathers a diff-style summary for the grouped view.
+	// DirtyDetails gathers a diff-style summary for the detailed view.
 	// The short view leaves this false to keep probing lighter.
 	DirtyDetails bool
 	// All keeps clean repositories in the rendered output.
@@ -45,6 +45,51 @@ type Options struct {
 	// Diagnostics records privacy-safe performance metadata. Nil keeps
 	// diagnostics fully disabled.
 	Diagnostics *Diagnostics
+	// Progress receives transient, local presentation events. Events may carry
+	// paths and are deliberately separate from privacy-safe diagnostics.
+	Progress ProgressFunc
+	// Report receives each completed report in deterministic path order.
+	Report func(Report)
+}
+
+// ProgressKind identifies a presentation event emitted while a run is active.
+type ProgressKind uint8
+
+const (
+	// ProgressPhase announces a transition between scanning, preparing,
+	// checking, and completion.
+	ProgressPhase ProgressKind = iota
+	// ProgressDiscovery carries filesystem traversal counters.
+	ProgressDiscovery
+	// ProgressRepositoryStart marks a repository entering the probe pool.
+	ProgressRepositoryStart
+	// ProgressRepositoryEnd carries the completed repository outcome.
+	ProgressRepositoryEnd
+	// ProgressGitStart marks a child Git operation becoming active.
+	ProgressGitStart
+	// ProgressGitEnd marks a child Git operation completing.
+	ProgressGitEnd
+)
+
+// ProgressEvent is an ephemeral snapshot for interactive presentation. It is
+// not part of the diagnostic format and may contain local paths.
+type ProgressEvent struct {
+	Kind                   ProgressKind
+	Phase, Path, Operation string
+	Entries, Directories   int
+	Repositories           int
+	Total                  int
+	Attention, Failed      bool
+}
+
+// ProgressFunc consumes a progress event. Implementations must be safe for
+// concurrent calls from repository and Git workers.
+type ProgressFunc func(ProgressEvent)
+
+func reportProgress(progress ProgressFunc, event ProgressEvent) {
+	if progress != nil {
+		progress(event)
+	}
 }
 
 // PruneList collects the repeatable --prune flag values.
@@ -80,7 +125,8 @@ func Run(opts Options) ([]Report, error) {
 	if opts.Diagnostics != nil {
 		started = time.Now()
 	}
-	repos, stats, err := scan(opts.Roots, opts.Hidden, opts.Prune)
+	reportProgress(opts.Progress, ProgressEvent{Kind: ProgressPhase, Phase: "scanning"})
+	repos, stats, err := scan(opts.Roots, opts.Hidden, opts.Prune, opts.Progress)
 	if opts.Diagnostics != nil {
 		opts.Diagnostics.Phase("discovery", started, map[string]int{
 			"entries": stats.entries, "directories": stats.directories,
@@ -91,9 +137,11 @@ func Run(opts Options) ([]Report, error) {
 	if err != nil {
 		return nil, err
 	}
+	slices.Sort(repos)
 	opts.Diagnostics.RegisterRepositories(repos)
+	reportProgress(opts.Progress, ProgressEvent{Kind: ProgressPhase, Phase: "preparing", Total: len(repos)})
 	reports := probeAll(repos, opts)
-	slices.SortFunc(reports, func(a, b Report) int { return strings.Compare(a.Path, b.Path) })
+	reportProgress(opts.Progress, ProgressEvent{Kind: ProgressPhase, Phase: "complete", Total: len(repos)})
 	return reports, nil
 }
 
@@ -103,7 +151,7 @@ func Run(opts Options) ([]Report, error) {
 // shared-state counting and once-per-repository fetching, so when the
 // run needs none of those every repository simply stands alone.
 func probeAll(repos []string, opts Options) []Report {
-	git := gitRunner{diagnostics: opts.Diagnostics}
+	git := gitRunner{diagnostics: opts.Diagnostics, progress: opts.Progress}
 	jobs := opts.Jobs
 	if jobs < 1 {
 		jobs = 1
@@ -138,8 +186,14 @@ func probeAll(repos []string, opts Options) []Report {
 		})
 		phaseStarted = time.Now()
 	}
+	reportProgress(opts.Progress, ProgressEvent{Kind: ProgressPhase, Phase: "checking", Total: len(repos)})
 	sem := make(chan struct{}, jobs)
 	reports := make([]Report, len(repos))
+	type completedReport struct {
+		index  int
+		report Report
+	}
+	completed := make(chan completedReport, len(repos))
 	var wg sync.WaitGroup
 	for i, repo := range repos {
 		wg.Add(1)
@@ -151,15 +205,42 @@ func probeAll(repos []string, opts Options) []Report {
 			}
 			sem <- struct{}{}
 			defer func() { <-sem }()
+			reportProgress(opts.Progress, ProgressEvent{Kind: ProgressRepositoryStart, Path: repo, Total: len(repos)})
 			var started time.Time
 			if opts.Diagnostics != nil {
 				started = opts.Diagnostics.RepositoryStart(repo, queued)
 				defer opts.Diagnostics.RepositoryEnd(repo, started)
 			}
-			reports[i] = probe(git, repo, opts, carriers[i], linked[i])
+			report := probe(git, repo, opts, carriers[i], linked[i])
+			reportProgress(opts.Progress, ProgressEvent{
+				Kind: ProgressRepositoryEnd, Path: repo, Total: len(repos),
+				Attention: !report.Ignored && report.Err == nil && opts.Only.Filter(report.Signs()) != "",
+				Failed:    !report.Ignored && report.Err != nil,
+			})
+			completed <- completedReport{index: i, report: report}
 		}(i, repo)
 	}
-	wg.Wait()
+	go func() {
+		wg.Wait()
+		close(completed)
+	}()
+	pending := make(map[int]Report)
+	next := 0
+	for item := range completed {
+		pending[item.index] = item.report
+		for {
+			report, ok := pending[next]
+			if !ok {
+				break
+			}
+			delete(pending, next)
+			reports[next] = report
+			if opts.Report != nil {
+				opts.Report(report)
+			}
+			next++
+		}
+	}
 	if opts.Diagnostics != nil {
 		opts.Diagnostics.Phase("probing", phaseStarted, map[string]int{"repositories": len(repos)})
 	}

@@ -8,7 +8,9 @@ import (
 	"runtime"
 	"slices"
 	"strings"
+	"sync"
 	"testing"
+	"time"
 
 	"github.com/jkbstf/git-comb/internal/comb"
 )
@@ -40,6 +42,22 @@ func gitInit(t *testing.T, dir string) {
 	}
 }
 
+type blockingWriter struct {
+	mu      sync.Mutex
+	buf     bytes.Buffer
+	started chan struct{}
+	release chan struct{}
+	once    sync.Once
+}
+
+func (w *blockingWriter) Write(data []byte) (int, error) {
+	w.once.Do(func() { close(w.started) })
+	<-w.release
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return w.buf.Write(data)
+}
+
 func TestRunVersionGoesToStdout(t *testing.T) {
 	var stdout, stderr bytes.Buffer
 	if code := run([]string{"--version"}, &stdout, &stderr); code != 0 {
@@ -50,6 +68,31 @@ func TestRunVersionGoesToStdout(t *testing.T) {
 	}
 	if stderr.Len() != 0 {
 		t.Errorf("stderr = %q, want empty", stderr.String())
+	}
+}
+
+func TestRunStreamsShortOutputBeforeReturning(t *testing.T) {
+	isolateConfig(t)
+	repo := filepath.Join(t.TempDir(), "repo")
+	gitInit(t, repo)
+	stdout := &blockingWriter{started: make(chan struct{}), release: make(chan struct{})}
+	var stderr bytes.Buffer
+	done := make(chan int, 1)
+	go func() { done <- run([]string{"--short", repo}, stdout, &stderr) }()
+
+	select {
+	case <-stdout.started:
+	case <-time.After(5 * time.Second):
+		t.Fatal("short output was not written while the command was active")
+	}
+	select {
+	case code := <-done:
+		t.Fatalf("run returned before its streamed output completed: %d", code)
+	default:
+	}
+	close(stdout.release)
+	if code := <-done; code != 1 {
+		t.Fatalf("exit = %d, want 1: %s", code, stderr.String())
 	}
 }
 
@@ -166,7 +209,7 @@ func TestRunNamedExcludeFlagsCompose(t *testing.T) {
 	if code := run(args, &stdout, &stderr); code != 1 {
 		t.Fatalf("exit = %d, want 1: %s", code, stderr.String())
 	}
-	if !strings.Contains(stdout.String(), "Empty repositories:") || strings.Contains(stdout.String(), "No remotes:") {
+	if !strings.Contains(stdout.String(), "repository  empty") || strings.Contains(stdout.String(), "remotes") {
 		t.Errorf("named exclusion not applied: %q", stdout.String())
 	}
 	if !strings.Contains(stderr.String(), "checking only empty repositories") {
@@ -224,7 +267,7 @@ func TestRunSignFiltersFromConfig(t *testing.T) {
 	if code := run([]string{base}, &stdout, &stderr); code != 1 {
 		t.Fatalf("exit = %d, want 1: %s", code, stderr.String())
 	}
-	if !strings.Contains(stdout.String(), "Empty repositories:") || strings.Contains(stdout.String(), "No remotes:") {
+	if !strings.Contains(stdout.String(), "repository  empty") || strings.Contains(stdout.String(), "remotes") {
 		t.Errorf("comb.except not applied to the row: %q", stdout.String())
 	}
 	if !strings.Contains(stderr.String(), "checking only uncommitted changes, unpushed commits, branches ahead of upstream, branches behind upstream, stashes, empty repositories, and unreachable remotes") {
@@ -255,7 +298,7 @@ func TestRunNamedOnlyFiltersFromConfig(t *testing.T) {
 	if code := run([]string{base}, &stdout, &stderr); code != 1 {
 		t.Fatalf("exit = %d, want 1: %s", code, stderr.String())
 	}
-	for _, want := range []string{"Empty repositories:", "No remotes:"} {
+	for _, want := range []string{"repository", "remotes"} {
 		if !strings.Contains(stdout.String(), want) {
 			t.Errorf("stdout missing %q: %q", want, stdout.String())
 		}
@@ -300,7 +343,7 @@ func TestRunNamedExcludeFiltersFromConfig(t *testing.T) {
 	if code := run([]string{"--exclude-dirty", base}, &stdout, &stderr); code != 1 {
 		t.Fatalf("exit = %d, want 1: %s", code, stderr.String())
 	}
-	for _, want := range []string{"Empty repositories:", "No remotes:"} {
+	for _, want := range []string{"repository", "remotes"} {
 		if !strings.Contains(stdout.String(), want) {
 			t.Errorf("command-line exclusion did not replace config; missing %q: %q", want, stdout.String())
 		}

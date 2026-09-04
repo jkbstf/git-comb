@@ -58,6 +58,7 @@ func gitOut(repo string, args ...string) (string, error) {
 
 type gitRunner struct {
 	diagnostics *Diagnostics
+	progress    ProgressFunc
 }
 
 func (g gitRunner) out(repo, operation string, args ...string) (string, error) {
@@ -76,6 +77,7 @@ func (g gitRunner) output(repo, operation string, stdin io.Reader, args ...strin
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
+	reportProgress(g.progress, ProgressEvent{Kind: ProgressGitStart, Path: repo, Operation: operation})
 	span := g.diagnostics.startGit(repo, operation)
 	err := cmd.Run()
 	result, exitCode := "ok", 0
@@ -87,6 +89,7 @@ func (g gitRunner) output(repo, operation string, stdin io.Reader, args ...strin
 		}
 	}
 	span.end(result, exitCode)
+	reportProgress(g.progress, ProgressEvent{Kind: ProgressGitEnd, Path: repo, Operation: operation})
 	if err != nil {
 		msg := strings.TrimSpace(stderr.String())
 		if msg == "" {

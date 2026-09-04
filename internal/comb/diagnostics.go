@@ -139,6 +139,12 @@ func (d *Diagnostics) RegisterRepositories(repos []string) {
 
 // Phase records one completed run phase and non-identifying counters.
 func (d *Diagnostics) Phase(name string, started time.Time, counts map[string]int) {
+	d.PhaseDuration(name, time.Since(started), counts)
+}
+
+// PhaseDuration records a phase whose work was accumulated across several
+// intervals, such as incremental rendering between repository completions.
+func (d *Diagnostics) PhaseDuration(name string, duration time.Duration, counts map[string]int) {
 	if d == nil {
 		return
 	}
@@ -151,7 +157,7 @@ func (d *Diagnostics) Phase(name string, started time.Time, counts map[string]in
 		Phase      string         `json:"phase"`
 		DurationMS float64        `json:"duration_ms"`
 		Counts     map[string]int `json:"counts,omitempty"`
-	}{"phase_end", d.offsetMS(now), safeDiagnosticValue(name, diagnosticPhases), milliseconds(now.Sub(started)), safeDiagnosticCounts(counts)})
+	}{"phase_end", d.offsetMS(now), safeDiagnosticValue(name, diagnosticPhases), milliseconds(duration), safeDiagnosticCounts(counts)})
 }
 
 // Wait records time spent waiting for a serialized resource such as the fetch

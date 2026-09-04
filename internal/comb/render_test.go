@@ -24,25 +24,24 @@ func renderFixtures() []Report {
 	}
 }
 
-func TestRenderGrouped(t *testing.T) {
+func TestRenderDetailed(t *testing.T) {
 	reports := renderFixtures()
 
-	t.Run("groups states without signs and counts repositories once", func(t *testing.T) {
+	t.Run("keeps each repository together without signs and counts it once", func(t *testing.T) {
 		var buf bytes.Buffer
 		attention, failed := Render(&buf, reports, RenderOptions{})
 		if attention != 3 || failed != 1 {
 			t.Errorf("attention, failed = %d, %d; want 3, 1", attention, failed)
 		}
-		want := "Uncommitted changes:\n" +
-			"  b/dirty  [main]   2 files changed: +3/-1\n" +
-			"  e/both   [topic]  1 untracked file\n" +
-			"\nBranches:\n" +
-			"  c/unpushed\n" +
-			"      backup/x  2 unpushed commits, no upstream\n" +
-			"  e/both\n" +
-			"    * topic     1 unpushed commit, no upstream\n" +
-			"\nInspection failures:\n" +
-			"  d/broken: git status: boom\n"
+		want := "b/dirty  [main]\n" +
+			"  working tree  2 files changed: +3/-1\n" +
+			"\nc/unpushed  [master]\n" +
+			"  branch    backup/x  2 unpushed commits, no upstream\n" +
+			"\nd/broken\n" +
+			"  inspection  git status: boom\n" +
+			"\ne/both  [topic]\n" +
+			"  working tree     1 untracked file\n" +
+			"  branch  * topic  1 unpushed commit, no upstream\n"
 		if got := buf.String(); got != want {
 			t.Errorf("output:\n%q\nwant:\n%q", got, want)
 		}
@@ -51,14 +50,14 @@ func TestRenderGrouped(t *testing.T) {
 		}
 	})
 
-	t.Run("all adds clean rows and grouped output includes branch detail", func(t *testing.T) {
+	t.Run("all adds clean blocks and detailed output includes branches", func(t *testing.T) {
 		var buf bytes.Buffer
 		Render(&buf, reports, RenderOptions{All: true})
 		out := buf.String()
 		for _, want := range []string{
-			"      backup/x  2 unpushed commits, no upstream\n",
-			"    * topic     1 unpushed commit, no upstream\n",
-			"Clean repositories:\n  a/clean  [master]\n",
+			"  branch    backup/x  2 unpushed commits, no upstream\n",
+			"  branch  * topic  1 unpushed commit, no upstream\n",
+			"a/clean  [master]\n  status  clean\n",
 		} {
 			if !strings.Contains(out, want) {
 				t.Errorf("output missing %q:\n%s", want, out)
@@ -93,13 +92,13 @@ func TestRenderGrouped(t *testing.T) {
 		var buf bytes.Buffer
 		Render(&buf, []Report{report}, RenderOptions{Color: true, Only: only})
 		out := buf.String()
-		if !strings.Contains(out, "* "+ansiGreen+"main"+ansiReset+"   1 unpushed commit, no upstream") {
+		if !strings.Contains(out, "branch  * "+ansiGreen+"main"+ansiReset+"   1 unpushed commit, no upstream") {
 			t.Errorf("checked-out branch is not green:\n%q", out)
 		}
 		if strings.Contains(out, ansiGreen+"topic") {
 			t.Errorf("non-checked-out branch is green:\n%q", out)
 		}
-		if !strings.Contains(out, "+ topic  2 unpushed commits, no upstream") {
+		if !strings.Contains(out, "branch  + topic  2 unpushed commits, no upstream") {
 			t.Errorf("branch checked out in another worktree lacks Git's + marker:\n%q", out)
 		}
 	})
@@ -115,10 +114,10 @@ func TestRenderGrouped(t *testing.T) {
 			t.Errorf("attention, failed = %d, %d; want 2, 1", attention, failed)
 		}
 		out := buf.String()
-		if strings.Contains(out, "Branches:") || strings.Contains(out, "c/unpushed") {
+		if strings.Contains(out, "branch") || strings.Contains(out, "c/unpushed") {
 			t.Errorf("unselected group survived:\n%s", out)
 		}
-		if !strings.Contains(out, "Uncommitted changes:") || !strings.Contains(out, "d/broken") {
+		if !strings.Contains(out, "working tree") || !strings.Contains(out, "d/broken") {
 			t.Errorf("selected group or probe failure missing:\n%s", out)
 		}
 	})
@@ -155,10 +154,10 @@ func TestRenderUsesPathsRelativeToNearestScanRoot(t *testing.T) {
 	}
 	reports := []Report{{Path: repo, Branch: "main", Dirty: true}}
 
-	var grouped bytes.Buffer
-	Render(&grouped, reports, RenderOptions{Roots: []string{root, group}})
-	if got, want := grouped.String(), "Uncommitted changes:\n  repo  [main]\n"; got != want {
-		t.Errorf("grouped output = %q, want %q", got, want)
+	var detailed bytes.Buffer
+	Render(&detailed, reports, RenderOptions{Roots: []string{root, group}})
+	if got, want := detailed.String(), "repo  [main]\n  working tree\n"; got != want {
+		t.Errorf("detailed output = %q, want %q", got, want)
 	}
 
 	var short bytes.Buffer
@@ -185,7 +184,7 @@ func TestRenderShortPreservesCompactView(t *testing.T) {
 	}
 }
 
-func TestRenderGroupedCoversEveryNamedState(t *testing.T) {
+func TestRenderDetailedCoversEveryNamedState(t *testing.T) {
 	reports := []Report{{
 		Path:        "repo",
 		Branch:      "main",
@@ -206,39 +205,40 @@ func TestRenderGroupedCoversEveryNamedState(t *testing.T) {
 	if attention != 1 || failed != 0 {
 		t.Errorf("attention, failed = %d, %d; want 1, 0", attention, failed)
 	}
-	for _, heading := range []string{
-		"Uncommitted changes:",
-		"Branches:",
-		"Stashes:",
-		"Empty repositories:",
-		"No remotes:",
-		"Unreachable remotes:",
+	for _, row := range []string{
+		"working tree",
+		"remotes",
+		"branch",
+		"stash",
+		"repository",
+		"fetch",
 	} {
-		if !strings.Contains(buf.String(), heading+"\n") {
-			t.Errorf("output missing %q:\n%s", heading, buf.String())
+		if !strings.Contains(buf.String(), row) {
+			t.Errorf("output missing %q:\n%s", row, buf.String())
 		}
 	}
 	for _, want := range []string{
-		"Uncommitted changes:\n  repo  [main]",
-		"Stashes:\n  repo  3 stashes",
-		"Empty repositories:\n  repo\n",
-		"No remotes:\n  repo\n",
-		"Unreachable remotes:\n  repo\n",
+		"repo  [main]\n",
+		"working tree",
+		"remotes                        none configured",
+		"stash                          3 stashes",
+		"repository                     empty",
+		"fetch                          one or more remotes unreachable",
 	} {
 		if !strings.Contains(buf.String(), want) {
 			t.Errorf("output missing repo-level context %q:\n%s", want, buf.String())
 		}
 	}
 	out := buf.String()
-	dirtyAt := strings.Index(out, "Uncommitted changes:")
-	localAt := strings.Index(out, "No remotes:")
-	branchesAt := strings.Index(out, "Branches:")
-	stashesAt := strings.Index(out, "Stashes:")
+	dirtyAt := strings.Index(out, "working tree")
+	localAt := strings.Index(out, "remotes")
+	branchesAt := strings.Index(out, "branch")
+	stashesAt := strings.Index(out, "stash")
 	if dirtyAt >= localAt || localAt >= branchesAt || branchesAt >= stashesAt {
 		t.Errorf("important sections are out of order:\n%s", out)
 	}
 	if strings.Contains(buf.String(), "DUABSELO") {
-		t.Errorf("grouped output exposed compact signs:\n%s", buf.String())
+		t.Errorf("detailed output exposed compact signs:\n%s", buf.String())
 	}
 }
 

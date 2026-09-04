@@ -50,7 +50,7 @@ unreachable from any remote, stashes, and ahead/behind branches.
     -j, --jobs N         probe N repositories in parallel (default %d)
         --fetch          fetch all remotes first (may prompt), so behind
                          is current
-        --hidden         descend into hidden directories
+        --hidden         descend into hidden and system directories
         --prune GLOB     skip directories matching GLOB (repeatable;
                          node_modules is always skipped)
         --no-ignores     disregard comb.ignore and comb.ignoreBranch
@@ -154,7 +154,7 @@ func run(args []string, stdout, stderr io.Writer) (code int) {
 	if len(opts.Roots) == 0 {
 		opts.Roots = []string{"."}
 	}
-	// The grouped view combines per-branch local-only and upstream
+	// The detailed view combines per-branch local-only and upstream
 	// status and summarizes working-tree changes. The compact view
 	// deliberately avoids those extra detail probes.
 	opts.BranchDetails = !short
@@ -250,25 +250,51 @@ func run(args []string, stdout, stderr io.Writer) (code int) {
 		})
 	}
 
-	reports, err := comb.Run(opts)
-	if err != nil {
-		fmt.Fprintf(stderr, "git-comb: %v\n", err)
-		return 2
-	}
-	var renderStarted time.Time
-	if opts.Diagnostics != nil {
-		renderStarted = time.Now()
-	}
-	attention, failed := comb.Render(stdout, reports, comb.RenderOptions{
+	renderOpts := comb.RenderOptions{
 		Roots: opts.Roots,
 		All:   opts.All,
 		Short: short,
 		Color: useColor,
 		Width: outputWidth(stdout),
 		Only:  opts.Only,
-	})
+	}
+	progress := newTerminalProgress(stderr, opts.Roots)
+	defer progress.Stop()
+	if progress != nil {
+		opts.Progress = progress.Update
+	}
+	attention, failed := 0, 0
+	wroteReport := false
+	var renderDuration time.Duration
+	opts.Report = func(report comb.Report) {
+		started := time.Now()
+		defer func() { renderDuration += time.Since(started) }()
+		var block strings.Builder
+		reportAttention, reportFailed := comb.Render(&block, []comb.Report{report}, renderOpts)
+		attention += reportAttention
+		failed += reportFailed
+		if block.Len() == 0 {
+			return
+		}
+		comb.WithTerminal(func() {
+			progress.Suspend(func() {
+				if wroteReport && !short {
+					fmt.Fprintln(stdout)
+				}
+				_, _ = io.WriteString(stdout, block.String())
+			})
+		})
+		wroteReport = true
+	}
+
+	reports, err := comb.Run(opts)
+	progress.Stop()
+	if err != nil {
+		fmt.Fprintf(stderr, "git-comb: %v\n", err)
+		return 2
+	}
 	if opts.Diagnostics != nil {
-		opts.Diagnostics.Phase("rendering", renderStarted, map[string]int{"repositories": len(reports)})
+		opts.Diagnostics.PhaseDuration("rendering", renderDuration, map[string]int{"repositories": len(reports)})
 	}
 	ackedRepos, ackedBranches := 0, 0
 	for _, r := range reports {
@@ -281,7 +307,7 @@ func run(args []string, stdout, stderr io.Writer) (code int) {
 	if !opts.Only.All() {
 		selectionLabel = selectedStates(opts.Only)
 	}
-	if hasRenderedReports(reports, opts.All, opts.Only) {
+	if wroteReport {
 		fmt.Fprintln(stderr)
 	}
 	fmt.Fprintln(stderr, summary(len(reports), attention, failed, ackedRepos, ackedBranches, selectionLabel))
@@ -293,21 +319,6 @@ func run(args []string, stdout, stderr io.Writer) (code int) {
 		return 1
 	}
 	return 0
-}
-
-// hasRenderedReports keeps the summary's leading separation tied to
-// actual stdout content. A clean scan without --all should start
-// directly with its summary rather than an unexplained blank line.
-func hasRenderedReports(reports []comb.Report, all bool, only comb.SignSet) bool {
-	for _, r := range reports {
-		if r.Ignored {
-			continue
-		}
-		if r.Err != nil || only.Filter(r.Signs()) != "" || all {
-			return true
-		}
-	}
-	return false
 }
 
 // parseArgs parses flags the way git commands do: options and

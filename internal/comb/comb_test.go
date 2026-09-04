@@ -13,7 +13,9 @@ import (
 	"slices"
 	"sort"
 	"strings"
+	"sync"
 	"testing"
+	"time"
 )
 
 // requireGit skips when no git binary is available.
@@ -990,5 +992,116 @@ func TestRunSortsReports(t *testing.T) {
 	}
 	if !slices.IsSortedFunc(reports, func(a, b Report) int { return strings.Compare(a.Path, b.Path) }) {
 		t.Errorf("reports not sorted by path: %+v", reports)
+	}
+}
+
+func TestRunStreamsReportsInPathOrder(t *testing.T) {
+	requireGit(t)
+	setupGitEnv(t)
+	base := tempDir(t)
+	for _, name := range []string{"zeta", "alpha", "mid"} {
+		initRepo(t, filepath.Join(base, name))
+	}
+
+	var streamed []string
+	reports, err := Run(Options{
+		Roots: []string{base}, Jobs: 3,
+		Report: func(report Report) { streamed = append(streamed, report.Path) },
+	})
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	want := []string{
+		filepath.Join(base, "alpha"),
+		filepath.Join(base, "mid"),
+		filepath.Join(base, "zeta"),
+	}
+	if !slices.Equal(streamed, want) {
+		t.Errorf("streamed paths = %v, want %v", streamed, want)
+	}
+	var returned []string
+	for _, report := range reports {
+		returned = append(returned, report.Path)
+	}
+	if !slices.Equal(returned, streamed) {
+		t.Errorf("returned paths = %v, streamed = %v", returned, streamed)
+	}
+}
+
+func TestRunDeliversReportBeforeReturning(t *testing.T) {
+	requireGit(t)
+	setupGitEnv(t)
+	base := tempDir(t)
+	initRepo(t, filepath.Join(base, "repo"))
+
+	delivered := make(chan struct{})
+	release := make(chan struct{})
+	done := make(chan error, 1)
+	go func() {
+		_, err := Run(Options{
+			Roots: []string{base}, Jobs: 1,
+			Report: func(Report) {
+				close(delivered)
+				<-release
+			},
+		})
+		done <- err
+	}()
+
+	select {
+	case <-delivered:
+	case <-time.After(5 * time.Second):
+		t.Fatal("report was not delivered while Run was active")
+	}
+	select {
+	case err := <-done:
+		t.Fatalf("Run returned before the report callback completed: %v", err)
+	default:
+	}
+	close(release)
+	if err := <-done; err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+}
+
+func TestRunEmitsProgressWithoutChangingReports(t *testing.T) {
+	requireGit(t)
+	setupGitEnv(t)
+	base := tempDir(t)
+	initRepo(t, filepath.Join(base, "repo"))
+
+	var events []ProgressEvent
+	var eventsMu sync.Mutex
+	reports, err := Run(Options{
+		Roots: []string{base}, Jobs: 1,
+		Progress: func(event ProgressEvent) {
+			eventsMu.Lock()
+			events = append(events, event)
+			eventsMu.Unlock()
+		},
+	})
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if len(reports) != 1 {
+		t.Fatalf("reports = %d, want 1", len(reports))
+	}
+	var scanning, discovery, checking, finished, gitStarted bool
+	for _, event := range events {
+		switch {
+		case event.Kind == ProgressPhase && event.Phase == "scanning":
+			scanning = true
+		case event.Kind == ProgressDiscovery && event.Repositories == 1:
+			discovery = true
+		case event.Kind == ProgressPhase && event.Phase == "checking":
+			checking = true
+		case event.Kind == ProgressRepositoryEnd:
+			finished = true
+		case event.Kind == ProgressGitStart && event.Operation == "status":
+			gitStarted = true
+		}
+	}
+	if !scanning || !discovery || !checking || !finished || !gitStarted {
+		t.Errorf("missing progress events: scanning=%v discovery=%v checking=%v finished=%v git=%v", scanning, discovery, checking, finished, gitStarted)
 	}
 }

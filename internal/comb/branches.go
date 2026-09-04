@@ -53,7 +53,7 @@ func branchNames(refs []branchRef) []string {
 
 // inspectBranches combines global local-only work with each branch's
 // upstream relationship. Per-branch counts are gathered only for the
-// grouped view; the short view uses trackshort to keep this to one
+// detailed view; the short view uses trackshort to keep this to one
 // for-each-ref invocation.
 func inspectBranches(git gitRunner, repo string, refs []branchRef, kept []string, opts Options) (states []BranchStatus, anyAhead, anyBehind bool, err error) {
 	needUnpushed := opts.Only.Has('U')

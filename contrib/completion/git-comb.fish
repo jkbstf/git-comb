@@ -87,7 +87,7 @@ for command in git-comb git
 	complete -c $command -n __git_comb_using_command -f -s x -l except -r -a '(__git_comb_signs)' -d 'Exclude sign classes using compact initials'
 	complete -c $command -n __git_comb_using_command -f -s j -l jobs -r -a '1 2 4 8 16' -d 'Set repository probe parallelism'
 	complete -c $command -n __git_comb_using_command -l fetch -d 'Fetch all remotes first'
-	complete -c $command -n __git_comb_using_command -l hidden -d 'Descend into hidden directories'
+	complete -c $command -n __git_comb_using_command -l hidden -d 'Descend into hidden and system directories'
 	complete -c $command -n __git_comb_using_command -l prune -r -a '(__fish_complete_directories (commandline -ct))' -d 'Skip directories matching a glob'
 	complete -c $command -n __git_comb_using_command -l no-ignores -d 'Disregard configured acknowledgments'
 	complete -c $command -n __git_comb_using_command -f -l color -r -a 'auto always never' -d 'Control colored output'

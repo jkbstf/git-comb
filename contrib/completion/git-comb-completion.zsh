@@ -83,7 +83,7 @@ _git_comb_options ()
 		'--except:exclude sign classes using compact initials'
 		'--jobs:set repository probe parallelism'
 		'--fetch:fetch all remotes first'
-		'--hidden:descend into hidden directories'
+		'--hidden:descend into hidden and system directories'
 		'--prune:skip directories matching a glob'
 		'--no-ignores:disregard configured acknowledgments'
 		'--color:control colored output'
@@ -203,7 +203,7 @@ _git_comb_direct ()
 		'(-x --except)'{-x,--except}'[exclude sign classes using compact initials]:signs:_git_comb_signs' \
 		'(-j --jobs)'{-j,--jobs}'[set repository probe parallelism]:jobs:(1 2 4 8 16)' \
 		'--fetch[fetch all remotes first]' \
-		'--hidden[descend into hidden directories]' \
+		'--hidden[descend into hidden and system directories]' \
 		'*--prune[skip directories matching a glob]:directory glob:_directories' \
 		'--no-ignores[disregard configured acknowledgments]' \
 		'--color[control colored output]:color mode:(auto always never)' \

@@ -202,18 +202,17 @@ func TestE2EKitchenSink(t *testing.T) {
 		t.Fatalf("exit = %d, want 1; stderr: %s", res.code, res.stderr)
 	}
 	want := strings.Join([]string{
-		"Uncommitted changes:",
-		"  dirty  [master]  1 untracked file",
+		"dirty  [master]",
+		"  working tree  1 untracked file",
 		"",
-		"No remotes:",
-		"  norem",
+		"norem  [master]",
+		"  remotes  none configured",
 		"",
-		"Branches:",
-		"  unpushed",
-		"      keep/x  1 unpushed commit, no upstream",
-		"",
-		"Stashes:",
+		"stash  [master]",
 		"  stash  1 stash",
+		"",
+		"unpushed  [master]",
+		"  branch    keep/x  1 unpushed commit, no upstream",
 	}, "\n") + "\n"
 	if res.stdout != want {
 		t.Errorf("stdout:\n%q\nwant:\n%q", res.stdout, want)
@@ -346,7 +345,7 @@ func TestE2ENamedOnlyFilterWorksProcessWide(t *testing.T) {
 	if res.code != 1 {
 		t.Fatalf("exit = %d, want 1", res.code)
 	}
-	want := "Uncommitted changes:\n  dirty  [master]  1 untracked file\n"
+	want := "dirty  [master]\n  working tree  1 untracked file\n"
 	if res.stdout != want {
 		t.Errorf("stdout:\n%q\nwant:\n%q", res.stdout, want)
 	}
@@ -364,10 +363,10 @@ func TestE2EExceptHidesTheNoise(t *testing.T) {
 	if res.code != 1 {
 		t.Fatalf("exit = %d, want 1", res.code)
 	}
-	if strings.Contains(res.stdout, "  norem\n") {
+	if strings.Contains(res.stdout, "norem  [master]\n") {
 		t.Errorf("excluded L row still rendered:\n%s", res.stdout)
 	}
-	if !strings.Contains(res.stdout, "  dirty  [master]") {
+	if !strings.Contains(res.stdout, "dirty  [master]") {
 		t.Errorf("unexcluded rows missing:\n%s", res.stdout)
 	}
 	if !strings.Contains(res.stderr, "3 need attention") {
@@ -384,10 +383,10 @@ func TestE2ENamedExcludeWorksProcessWide(t *testing.T) {
 	if res.code != 1 {
 		t.Fatalf("exit = %d, want 1", res.code)
 	}
-	if strings.Contains(res.stdout, "  norem\n") {
+	if strings.Contains(res.stdout, "norem  [master]\n") {
 		t.Errorf("excluded local-only row still rendered:\n%s", res.stdout)
 	}
-	if !strings.Contains(res.stdout, "  dirty  [master]") {
+	if !strings.Contains(res.stdout, "dirty  [master]") {
 		t.Errorf("unexcluded rows missing:\n%s", res.stdout)
 	}
 	if !strings.Contains(res.stderr, "3 need attention") {
@@ -432,8 +431,8 @@ func TestE2EBrokenRepoExitsTwo(t *testing.T) {
 	if res.code != 2 {
 		t.Fatalf("exit = %d, want 2; stderr: %s", res.code, res.stderr)
 	}
-	if !strings.HasPrefix(res.stdout, "Inspection failures:\n") {
-		t.Errorf("stdout = %q, want a failure section", res.stdout)
+	if !strings.HasPrefix(res.stdout, "broken\n  inspection  ") {
+		t.Errorf("stdout = %q, want a repository failure block", res.stdout)
 	}
 	if !strings.Contains(res.stderr, "1 failed") {
 		t.Errorf("stderr = %q", res.stderr)
@@ -494,8 +493,8 @@ func TestE2EGitDispatch(t *testing.T) {
 	if !errors.As(err, &exit) || exit.ExitCode() != 1 {
 		t.Fatalf("git comb scan: err = %v, want exit 1", err)
 	}
-	if !strings.Contains(stdout.String(), "Branches:") ||
-		!strings.Contains(stdout.String(), "\n  unpushed\n") {
+	if !strings.Contains(stdout.String(), "unpushed  [master]") ||
+		!strings.Contains(stdout.String(), "\n  branch    keep/x") {
 		t.Errorf("dispatch scan output:\n%s", stdout.String())
 	}
 }
