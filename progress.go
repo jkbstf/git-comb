@@ -175,7 +175,6 @@ func (p *terminalProgress) Stop() {
 }
 
 func (p *terminalProgress) drawLocked(now time.Time) {
-	p.clearLocked()
 	p.frame++
 	frames := "|/-\\"
 	spinner := frames[p.frame%len(frames)]
@@ -199,18 +198,45 @@ func (p *terminalProgress) drawLocked(now time.Time) {
 	line = trimProgressLine(line, max(1, p.width-1))
 
 	detail := p.slowDetail(now)
-	if p.ansi && p.width >= 100 && detail != "" {
-		fmt.Fprintf(p.w, "\r\x1b[2K%s\n\r\x1b[2K%s", line, trimProgressLine("    "+detail, max(1, p.width-1)))
-		p.lines = 2
+	if p.ansi {
+		p.drawANSILocked(line, detail)
 		return
 	}
-	if p.ansi {
-		fmt.Fprintf(p.w, "\r\x1b[2K%s", line)
-	} else {
-		fmt.Fprintf(p.w, "\r%s", line)
-		p.lastWidth = utf8.RuneCountInString(line)
-	}
+
+	// Write the replacement and any padding together. Some terminals expose
+	// themselves as Windows character devices without ANSI support; clearing
+	// in one write and drawing in another gives those terminals a visible blank
+	// frame between updates.
+	lineWidth := utf8.RuneCountInString(line)
+	padding := max(0, p.lastWidth-lineWidth)
+	_, _ = io.WriteString(p.w, "\r"+line+strings.Repeat(" ", padding))
+	p.lastWidth = lineWidth
 	p.lines = 1
+}
+
+func (p *terminalProgress) drawANSILocked(line, detail string) {
+	oldLines := p.lines
+	twoLines := p.width >= 100 && detail != ""
+	var output strings.Builder
+	if oldLines == 2 {
+		output.WriteString("\r\x1b[1A")
+	} else {
+		output.WriteByte('\r')
+	}
+	output.WriteString(line)
+	output.WriteString("\x1b[K")
+	if twoLines {
+		output.WriteString("\n\r")
+		output.WriteString(trimProgressLine("    "+detail, max(1, p.width-1)))
+		output.WriteString("\x1b[K")
+		p.lines = 2
+	} else {
+		if oldLines == 2 {
+			output.WriteString("\n\r\x1b[2K\x1b[1A")
+		}
+		p.lines = 1
+	}
+	_, _ = io.WriteString(p.w, output.String())
 }
 
 func (p *terminalProgress) slowDetail(now time.Time) string {

@@ -9,6 +9,21 @@ import (
 	"github.com/jkbstf/git-comb/internal/comb"
 )
 
+type countingWriter struct {
+	bytes.Buffer
+	writes int
+}
+
+func (w *countingWriter) Write(data []byte) (int, error) {
+	w.writes++
+	return w.Buffer.Write(data)
+}
+
+func (w *countingWriter) WriteString(data string) (int, error) {
+	w.writes++
+	return w.Buffer.WriteString(data)
+}
+
 func TestTerminalProgressDiscoveryAndCheckingLines(t *testing.T) {
 	started := time.Now().Add(-2 * time.Second)
 	var buf bytes.Buffer
@@ -72,6 +87,34 @@ func TestTerminalProgressFallsBackWithoutANSI(t *testing.T) {
 	}
 	if !strings.Contains(buf.String(), "\r") || !strings.Contains(buf.String(), "Checking") {
 		t.Errorf("fallback progress missing carriage-return status: %q", buf.String())
+	}
+}
+
+func TestTerminalProgressRefreshIsOneWriteWithoutBlankFrame(t *testing.T) {
+	for _, ansi := range []bool{false, true} {
+		t.Run(map[bool]string{false: "fallback", true: "ansi"}[ansi], func(t *testing.T) {
+			var output countingWriter
+			p := &terminalProgress{
+				w: &output, ansi: ansi, started: time.Now().Add(-time.Second), width: 80,
+				phase: "checking", total: 20, checked: 10, active: 8,
+				operations: make(map[string]activeProgressOperation),
+			}
+			p.drawLocked(time.Now())
+			before := output.Len()
+			p.checked = 11
+			p.drawLocked(time.Now())
+			refresh := output.String()[before:]
+
+			if output.writes != 2 {
+				t.Fatalf("two frames used %d writes, want 2", output.writes)
+			}
+			if !strings.HasPrefix(refresh, "\r[") {
+				t.Errorf("refresh begins with a blank frame: %q", refresh)
+			}
+			if strings.Contains(refresh, "\x1b[2K\r") {
+				t.Errorf("refresh clears before drawing: %q", refresh)
+			}
+		})
 	}
 }
 
