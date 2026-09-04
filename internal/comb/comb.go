@@ -6,6 +6,8 @@
 package comb
 
 import (
+	"errors"
+	"os"
 	"path/filepath"
 	"runtime"
 	"slices"
@@ -264,6 +266,18 @@ func electCarriers(git gitRunner, repos []string, jobs int) (carriers, linked []
 	sem := make(chan struct{}, jobs)
 	var wg sync.WaitGroup
 	for i, repo := range repos {
+		gitDir := filepath.Join(repo, ".git")
+		info, err := os.Lstat(gitDir)
+		if err == nil && info.IsDir() {
+			_, commonErr := os.Lstat(filepath.Join(gitDir, "commondir"))
+			if errors.Is(commonErr, os.ErrNotExist) {
+				if absolute, absErr := filepath.Abs(gitDir); absErr == nil {
+					absolute = filepath.Clean(absolute)
+					locs[i] = location{gitDir: absolute, commonDir: absolute, ok: true}
+					continue
+				}
+			}
+		}
 		wg.Add(1)
 		go func(i int, repo string) {
 			defer wg.Done()

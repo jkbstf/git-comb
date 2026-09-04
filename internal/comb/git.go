@@ -9,6 +9,7 @@ import (
 	"os/exec"
 	"strconv"
 	"strings"
+	"sync"
 )
 
 // repoLocationEnv lists the environment variables through which git
@@ -29,14 +30,18 @@ var repoLocationEnv = []string{
 // gitEnv is the child environment: the parent's, minus the
 // repo-location overrides.
 func gitEnv() []string {
-	env := make([]string, 0, len(os.Environ()))
+	env := make([]string, 0, len(os.Environ())+1)
 	for _, kv := range os.Environ() {
 		name, _, ok := strings.Cut(kv, "=")
-		if ok && isRepoLocationVar(name) {
+		if ok && (isRepoLocationVar(name) || name == "LC_ALL") {
 			continue
 		}
 		env = append(env, kv)
 	}
+	// for-each-ref's documented tracking description contains words as
+	// well as counts. Pin Git's machine-readable output to the stable C
+	// locale so parsing does not depend on the user's language.
+	env = append(env, "LC_ALL=C")
 	return env
 }
 
@@ -61,6 +66,28 @@ type gitRunner struct {
 	progress    ProgressFunc
 }
 
+var cachedGitExecutable struct {
+	sync.Once
+	path string
+}
+
+// gitExecutable resolves git once per git-comb process. On Windows,
+// repeating PATH and PATHEXT lookup for every short-lived child adds
+// filesystem work to an already expensive process boundary.
+func gitExecutable() string {
+	cachedGitExecutable.Do(func() {
+		path, err := exec.LookPath("git")
+		if err == nil {
+			cachedGitExecutable.path = path
+		} else {
+			// Preserve exec.Command's established error reporting when Git
+			// is absent rather than introducing a separate startup path.
+			cachedGitExecutable.path = "git"
+		}
+	})
+	return cachedGitExecutable.path
+}
+
 func (g gitRunner) out(repo, operation string, args ...string) (string, error) {
 	return g.output(repo, operation, nil, args...)
 }
@@ -71,7 +98,7 @@ func (g gitRunner) outInput(repo, operation, input string, args ...string) (stri
 
 func (g gitRunner) output(repo, operation string, stdin io.Reader, args ...string) (string, error) {
 	argv := append([]string{"-C", repo, "--no-optional-locks"}, args...)
-	cmd := exec.Command("git", argv...)
+	cmd := exec.Command(gitExecutable(), argv...)
 	cmd.Env = gitEnv()
 	cmd.Stdin = stdin
 	var stdout, stderr bytes.Buffer

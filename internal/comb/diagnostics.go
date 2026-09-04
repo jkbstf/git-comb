@@ -18,6 +18,7 @@ var diagnosticOperations = map[string]bool{
 	"detached_unpushed": true, "dirty_diff": true, "divergence": true,
 	"empty_tree": true, "fetch": true, "remotes": true, "stash": true,
 	"status": true, "unpushed_aggregate": true, "unpushed_branch": true,
+	"unpushed_graph": true,
 }
 
 var diagnosticPhases = map[string]bool{

@@ -6,6 +6,7 @@ package comb
 // upstream" reports clean.
 
 import (
+	"bytes"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -115,6 +116,20 @@ func syncedRepo(t *testing.T) (repo, bare string) {
 // carrier of its one-member group and not a linked worktree.
 func probeAlone(repo string, opts Options) Report {
 	return probe(gitRunner{diagnostics: opts.Diagnostics}, repo, opts, true, false)
+}
+
+func testDiagnostics(t *testing.T) (*Diagnostics, *bytes.Buffer) {
+	t.Helper()
+	var buf bytes.Buffer
+	d, err := NewDiagnostics(&buf, "test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	return d, &buf
+}
+
+func diagnosticOperationCount(buf *bytes.Buffer, operation string) int {
+	return strings.Count(buf.String(), `"operation":"`+operation+`"`) / 2
 }
 
 func TestProbeCleanRepo(t *testing.T) {
@@ -243,7 +258,8 @@ func TestProbeDetachedHeadCommit(t *testing.T) {
 	mustGit(t, repo, "checkout", "--quiet", "--detach")
 	commitFile(t, repo, "file.txt", "detached work\n", "detached commit")
 
-	r := probeAlone(repo, Options{BranchDetails: true})
+	diagnostics, events := testDiagnostics(t)
+	r := probeAlone(repo, Options{BranchDetails: true, Diagnostics: diagnostics})
 	if r.Unpushed != 1 {
 		t.Errorf("Unpushed = %d, want 1", r.Unpushed)
 	}
@@ -252,6 +268,9 @@ func TestProbeDetachedHeadCommit(t *testing.T) {
 	}
 	if len(r.Branches) != 1 || r.Branches[0].Name != "(detached HEAD)" {
 		t.Errorf("Branches = %+v, want one detached HEAD entry", r.Branches)
+	}
+	if got := diagnosticOperationCount(events, "detached_unpushed"); got != 1 {
+		t.Errorf("detached unpushed processes = %d, want 1", got)
 	}
 }
 
@@ -290,12 +309,34 @@ func TestProbeStashOnly(t *testing.T) {
 	writeFile(t, filepath.Join(repo, "file.txt"), "modified\n")
 	mustGit(t, repo, "stash", "--quiet")
 
-	r := probeAlone(repo, Options{})
+	diagnostics, events := testDiagnostics(t)
+	r := probeAlone(repo, Options{Diagnostics: diagnostics})
 	if got, want := r.Signs(), "S"; got != want {
 		t.Errorf("Signs() = %q, want %q", got, want)
 	}
 	if r.Stashes != 1 {
 		t.Errorf("Stashes = %d, want 1", r.Stashes)
+	}
+	if got := diagnosticOperationCount(events, "stash"); got != 1 {
+		t.Errorf("stash processes = %d, want 1", got)
+	}
+}
+
+func TestProbeSkipsAbsentStashAndSeparateRemoteLookup(t *testing.T) {
+	requireGit(t)
+	setupGitEnv(t)
+	repo, _ := syncedRepo(t)
+	diagnostics, events := testDiagnostics(t)
+
+	r := probeAlone(repo, Options{BranchDetails: true, Diagnostics: diagnostics})
+	if r.Err != nil {
+		t.Fatalf("probe: %v", r.Err)
+	}
+	if got := diagnosticOperationCount(events, "stash"); got != 0 {
+		t.Errorf("absent-stash processes = %d, want 0", got)
+	}
+	if got := diagnosticOperationCount(events, "remotes"); got != 0 {
+		t.Errorf("separate remote processes = %d, want 0", got)
 	}
 }
 
@@ -305,13 +346,43 @@ func TestProbeNoRemote(t *testing.T) {
 	repo := filepath.Join(tempDir(t), "repo")
 	initRepo(t, repo)
 	commitFile(t, repo, "file.txt", "content\n", "first")
+	// remote.pushDefault is a remote-related key, not a configured remote.
+	mustGit(t, repo, "config", "remote.pushDefault", "ghost")
 
-	r := probeAlone(repo, Options{})
+	diagnostics, events := testDiagnostics(t)
+	r := probeAlone(repo, Options{Diagnostics: diagnostics})
 	if got, want := r.Signs(), "L"; got != want {
 		t.Errorf("Signs() = %q, want %q", got, want)
 	}
 	if r.Unpushed != 0 {
 		t.Errorf("Unpushed = %d with no remote, want 0 (L carries the case)", r.Unpushed)
+	}
+	if got := diagnosticOperationCount(events, "remotes"); got != 1 {
+		t.Errorf("fallback remote processes = %d, want 1", got)
+	}
+}
+
+func TestProbeRecognizesConfiguredRemoteWithoutURL(t *testing.T) {
+	requireGit(t)
+	setupGitEnv(t)
+	repo := filepath.Join(tempDir(t), "repo")
+	initRepo(t, repo)
+	commitFile(t, repo, "file.txt", "content\n", "first")
+	mustGit(t, repo, "config", "remote.archive.fetch", "+refs/heads/*:refs/remotes/archive/*")
+	if got := strings.TrimSpace(mustGit(t, repo, "remote")); got != "archive" {
+		t.Fatalf("fixture git remote = %q, want archive", got)
+	}
+	diagnostics, events := testDiagnostics(t)
+
+	r := probeAlone(repo, Options{Diagnostics: diagnostics})
+	if r.Err != nil {
+		t.Fatalf("probe: %v", r.Err)
+	}
+	if r.NoRemote {
+		t.Error("configured remote without URL reported local-only")
+	}
+	if got := diagnosticOperationCount(events, "remotes"); got != 0 {
+		t.Errorf("separate remote processes = %d, want 0", got)
 	}
 }
 
@@ -436,6 +507,43 @@ func TestProbeCombinesAttentionAcrossAllLocalBranches(t *testing.T) {
 	}
 }
 
+func TestProbeCountsOverlappingLocalOnlyBranchesInOneGraph(t *testing.T) {
+	requireGit(t)
+	setupGitEnv(t)
+	repo, _ := syncedRepo(t)
+	mustGit(t, repo, "checkout", "--quiet", "-b", "base-local")
+	commitFile(t, repo, "shared.txt", "shared\n", "shared local work")
+	mustGit(t, repo, "checkout", "--quiet", "-b", "child")
+	commitFile(t, repo, "child.txt", "child\n", "child work")
+	mustGit(t, repo, "checkout", "--quiet", "base-local")
+	mustGit(t, repo, "checkout", "--quiet", "-b", "sibling")
+	commitFile(t, repo, "sibling.txt", "sibling\n", "sibling work")
+	mustGit(t, repo, "checkout", "--quiet", "master")
+	diagnostics, events := testDiagnostics(t)
+
+	r := probeAlone(repo, Options{BranchDetails: true, Diagnostics: diagnostics})
+	if r.Err != nil {
+		t.Fatalf("probe: %v", r.Err)
+	}
+	if r.Unpushed != 3 {
+		t.Errorf("Unpushed = %d, want union count 3", r.Unpushed)
+	}
+	want := []BranchStatus{
+		{Name: "base-local", Unpushed: 1},
+		{Name: "child", Unpushed: 2},
+		{Name: "sibling", Unpushed: 2},
+	}
+	if !slices.Equal(r.Branches, want) {
+		t.Errorf("Branches:\n got %+v\nwant %+v", r.Branches, want)
+	}
+	if got := diagnosticOperationCount(events, "unpushed_graph"); got != 1 {
+		t.Errorf("unpushed graph processes = %d, want 1", got)
+	}
+	if got := diagnosticOperationCount(events, "unpushed_aggregate") + diagnosticOperationCount(events, "unpushed_branch"); got != 0 {
+		t.Errorf("legacy unpushed processes = %d, want 0", got)
+	}
+}
+
 func TestProbeMarksConfiguredUpstreamWhoseRefIsGone(t *testing.T) {
 	requireGit(t)
 	setupGitEnv(t)
@@ -458,15 +566,11 @@ func TestProbeMarksConfiguredUpstreamWhoseRefIsGone(t *testing.T) {
 	}
 }
 
-func TestInspectBranchesReportsDetailFailure(t *testing.T) {
-	requireGit(t)
-	setupGitEnv(t)
-	repo, _ := syncedRepo(t)
-	refs := []branchRef{{Name: "missing"}}
-
-	_, _, _, err := inspectBranches(gitRunner{}, repo, refs, []string{"missing"}, Options{BranchDetails: true})
+func TestParseLocalOnlyGraphRejectsUnreachableCommit(t *testing.T) {
+	refs := []branchRef{{Name: "main", OID: "tip"}}
+	_, _, err := parseLocalOnlyGraph("other\n", refs)
 	if err == nil {
-		t.Error("missing branch accepted while gathering per-branch detail")
+		t.Error("commit without a reachable branch accepted")
 	}
 }
 
@@ -575,6 +679,7 @@ func TestGitEnvScrubsRepoLocation(t *testing.T) {
 	t.Setenv("GIT_DIR", "/somewhere/.git")
 	t.Setenv("GIT_WORK_TREE", "/somewhere")
 	t.Setenv("GIT_CONFIG_GLOBAL", "/kept")
+	t.Setenv("LC_ALL", "pl_PL.UTF-8")
 
 	env := gitEnv()
 	joined := strings.Join(env, "\n")
@@ -583,6 +688,9 @@ func TestGitEnvScrubsRepoLocation(t *testing.T) {
 	}
 	if !strings.Contains(joined, "GIT_CONFIG_GLOBAL=/kept") {
 		t.Error("unrelated git variables must survive the scrub")
+	}
+	if !strings.Contains(joined, "LC_ALL=C") || strings.Contains(joined, "LC_ALL=pl_PL.UTF-8") {
+		t.Error("Git machine output locale must be pinned to C")
 	}
 }
 
@@ -620,6 +728,23 @@ func TestRunLinkedWorktreeGroup(t *testing.T) {
 	}
 	if !linked.Dirty {
 		t.Error("dirty linked worktree not reported dirty")
+	}
+}
+
+func TestRunClassifiesOnlyNonOrdinaryWorktreesWithGit(t *testing.T) {
+	requireGit(t)
+	setupGitEnv(t)
+	repo, _ := syncedRepo(t)
+	wt := filepath.Join(tempDir(t), "wt")
+	mustGit(t, repo, "worktree", "add", "--quiet", "-b", "wt-branch", wt)
+	diagnostics, events := testDiagnostics(t)
+
+	_, err := Run(Options{Roots: []string{repo, wt}, Jobs: 2, Diagnostics: diagnostics})
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if got := diagnosticOperationCount(events, "classify_worktree"); got != 1 {
+		t.Errorf("classification processes = %d, want 1 for only the linked worktree", got)
 	}
 }
 

@@ -364,6 +364,10 @@ counts them (`1 repository and 13 branches acknowledged`), and
 - Repositories are probed in parallel; a repository that cannot be
   probed becomes a reported `!` finding (exit 2), never an aborted
   scan.
+- The detailed view obtains exact upstream counts during branch enumeration
+  and derives all per-branch local-only counts from one commit-graph stream.
+  It does not start another Git process for every branch, which is especially
+  important on Windows.
 - No dependencies beyond the Go standard library.
 
 ## Notes

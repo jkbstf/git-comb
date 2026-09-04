@@ -117,23 +117,45 @@ func configuredSigns(selected map[byte]bool) string {
 // deliberately local-only branches. Both merge local over global, so
 // a global glob applies everywhere and a local one to that clone.
 func repoIgnores(git gitRunner, repo string) (ignored bool, globs []string, err error) {
-	entries, err := configEntries(git, repo)
+	ignored, globs, _, err = repoSettings(git, repo, false)
+	return ignored, globs, err
+}
+
+// repoSettings reads repository acknowledgments and, when requested, detects
+// an ordinary configured remote in the same Git process. A positive remote
+// result is conclusive; callers retain a git remote fallback for unusual
+// layouts that have no remote.* config entry.
+func repoSettings(git gitRunner, repo string, includeRemotes bool) (ignored bool, globs []string, configuredRemote bool, err error) {
+	pattern := `^comb\.`
+	if includeRemotes {
+		pattern = `^(comb\.|remote\.)`
+	}
+	entries, err := configEntriesMatching(git, repo, pattern)
 	if err != nil {
-		return false, nil, err
+		return false, nil, false, err
 	}
 	for _, e := range entries {
+		if remoteConfigEntry(e.key) {
+			configuredRemote = true
+			continue
+		}
 		switch e.key {
 		case "comb.ignore":
 			b, err := gitBool(e.value)
 			if err != nil {
-				return false, nil, fmt.Errorf("comb.ignore: %w", err)
+				return false, nil, false, fmt.Errorf("comb.ignore: %w", err)
 			}
 			ignored = b
 		case "comb.ignorebranch": // git lowercases config key names
 			globs = append(globs, e.value)
 		}
 	}
-	return ignored, globs, nil
+	return ignored, globs, configuredRemote, nil
+}
+
+func remoteConfigEntry(key string) bool {
+	rest, ok := strings.CutPrefix(key, "remote.")
+	return ok && strings.Contains(rest, ".")
 }
 
 type configEntry struct {
@@ -144,7 +166,11 @@ type configEntry struct {
 // configEntries lists every comb.* config entry visible from dir.
 // git exits 1 when nothing matches; that simply means no settings.
 func configEntries(git gitRunner, dir string) ([]configEntry, error) {
-	out, err := git.out(dir, "config", "config", "-z", "--get-regexp", `^comb\.`)
+	return configEntriesMatching(git, dir, `^comb\.`)
+}
+
+func configEntriesMatching(git gitRunner, dir, pattern string) ([]configEntry, error) {
+	out, err := git.out(dir, "config", "config", "-z", "--get-regexp", pattern)
 	if err != nil {
 		if strings.Contains(err.Error(), "exit status 1") {
 			return nil, nil
