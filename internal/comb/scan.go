@@ -23,26 +23,41 @@ import (
 // root that does not resolve to a directory is an error: a mistyped
 // root must never look like a clean tree.
 func Scan(roots []string, hidden bool, prune []string) ([]string, error) {
+	repos, _, err := scan(roots, hidden, prune)
+	return repos, err
+}
+
+type scanStats struct {
+	entries, directories, hiddenSkipped, pruned, unreadable int
+}
+
+func scan(roots []string, hidden bool, prune []string) ([]string, scanStats, error) {
 	patterns := append([]string{"node_modules"}, prune...)
 	for _, p := range patterns {
 		if _, err := path.Match(p, "probe"); err != nil {
-			return nil, fmt.Errorf("prune: bad pattern %q", p)
+			return nil, scanStats{}, fmt.Errorf("prune: bad pattern %q", p)
 		}
 	}
 
 	var repos []string
+	var stats scanStats
 	seen := map[string]bool{}
 	for _, given := range roots {
 		root, err := resolveRoot(given)
 		if err != nil {
-			return nil, err
+			return nil, stats, err
 		}
 		walk := func(path string, d fs.DirEntry, err error) error {
 			if err != nil {
 				if path == root {
 					return err
 				}
+				stats.unreadable++
 				return nil
+			}
+			stats.entries++
+			if d.IsDir() {
+				stats.directories++
 			}
 			if d.Name() == ".git" {
 				repo := filepath.Dir(path)
@@ -59,18 +74,20 @@ func Scan(roots []string, hidden bool, prune []string) ([]string, error) {
 				return nil
 			}
 			if matchesAny(d.Name(), patterns) {
+				stats.pruned++
 				return fs.SkipDir
 			}
 			if !hidden && strings.HasPrefix(d.Name(), ".") {
+				stats.hiddenSkipped++
 				return fs.SkipDir
 			}
 			return nil
 		}
 		if err := filepath.WalkDir(root, walk); err != nil {
-			return nil, err
+			return nil, stats, err
 		}
 	}
-	return repos, nil
+	return repos, stats, nil
 }
 
 // matchesAny reports whether name matches one of the prune globs.

@@ -15,13 +15,13 @@ type branchRef struct {
 	Track, WorktreePath           string
 }
 
-func listBranchRefs(repo string, includeTrack bool) ([]branchRef, error) {
+func listBranchRefs(git gitRunner, repo string, includeTrack bool) ([]branchRef, error) {
 	track := ""
 	if includeTrack {
 		track = "%(upstream:trackshort)"
 	}
 	format := "%(refname:short)%09%(upstream)%09%(upstream:short)%09" + track + "%09%(worktreepath)"
-	out, err := gitOut(repo, "for-each-ref", "refs/heads", "--format="+format)
+	out, err := git.out(repo, "branches", "for-each-ref", "refs/heads", "--format="+format)
 	if err != nil {
 		return nil, err
 	}
@@ -55,7 +55,7 @@ func branchNames(refs []branchRef) []string {
 // upstream relationship. Per-branch counts are gathered only for the
 // grouped view; the short view uses trackshort to keep this to one
 // for-each-ref invocation.
-func inspectBranches(repo string, refs []branchRef, kept []string, opts Options) (states []BranchStatus, anyAhead, anyBehind bool, err error) {
+func inspectBranches(git gitRunner, repo string, refs []branchRef, kept []string, opts Options) (states []BranchStatus, anyAhead, anyBehind bool, err error) {
 	needUnpushed := opts.Only.Has('U')
 	needAhead := opts.Only.Has('A')
 	needBehind := opts.Only.Has('B')
@@ -83,14 +83,14 @@ func inspectBranches(repo string, refs []branchRef, kept []string, opts Options)
 			UpstreamGone: ref.Upstream != "" && ref.Track == "",
 		}
 		if needUnpushed && keptSet[ref.Name] {
-			n, err := gitCount(repo, "rev-list", "--count", "refs/heads/"+ref.Name, "--not", "--remotes")
+			n, err := git.count(repo, "unpushed_branch", "rev-list", "--count", "refs/heads/"+ref.Name, "--not", "--remotes")
 			if err != nil {
 				return nil, false, false, err
 			}
 			state.Unpushed = n
 		}
 		if (needAhead && trackAhead) || (needBehind && trackBehind) {
-			ahead, behind, err := branchDivergence(repo, ref)
+			ahead, behind, err := branchDivergence(git, repo, ref)
 			if err != nil {
 				return nil, false, false, err
 			}
@@ -115,8 +115,8 @@ func inspectBranches(repo string, refs []branchRef, kept []string, opts Options)
 	return states, anyAhead, anyBehind, nil
 }
 
-func branchDivergence(repo string, ref branchRef) (ahead, behind int, err error) {
-	out, err := gitOut(repo, "rev-list", "--left-right", "--count", "refs/heads/"+ref.Name+"..."+ref.Upstream)
+func branchDivergence(git gitRunner, repo string, ref branchRef) (ahead, behind int, err error) {
+	out, err := git.out(repo, "divergence", "rev-list", "--left-right", "--count", "refs/heads/"+ref.Name+"..."+ref.Upstream)
 	if err != nil {
 		return 0, 0, err
 	}

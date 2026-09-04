@@ -12,6 +12,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/jkbstf/git-comb/internal/comb"
 )
@@ -54,6 +55,8 @@ unreachable from any remote, stashes, and ahead/behind branches.
                          node_modules is always skipped)
         --no-ignores     disregard comb.ignore and comb.ignoreBranch
         --color WHEN     color the output: auto, always, never
+        --diagnostics FILE
+                         write privacy-safe performance diagnostics
         --version        print the version and exit
     -h, --help           show this help
 
@@ -76,16 +79,17 @@ func main() {
 
 // run is the whole program behind main, kept separate so tests can
 // drive it with their own streams and read the exit code.
-func run(args []string, stdout, stderr io.Writer) int {
+func run(args []string, stdout, stderr io.Writer) (code int) {
 	var (
-		opts         comb.Options
-		short        bool
-		colorWhen    string
-		onlySigns    string
-		exceptSigns  string
-		onlyNamed    namedFilterFlags
-		excludeNamed namedFilterFlags
-		showVersion  bool
+		opts            comb.Options
+		short           bool
+		colorWhen       string
+		diagnosticsPath string
+		onlySigns       string
+		exceptSigns     string
+		onlyNamed       namedFilterFlags
+		excludeNamed    namedFilterFlags
+		showVersion     bool
 	)
 
 	fs := flag.NewFlagSet("git-comb", flag.ContinueOnError)
@@ -122,6 +126,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 	fs.BoolVar(&excludeNamed.Offline, "exclude-offline", false, "")
 	fs.BoolVar(&opts.NoIgnores, "no-ignores", false, "")
 	fs.StringVar(&colorWhen, "color", "auto", "")
+	fs.StringVar(&diagnosticsPath, "diagnostics", "", "")
 	fs.BoolVar(&showVersion, "version", false, "")
 
 	roots, err := parseArgs(fs, args)
@@ -155,9 +160,44 @@ func run(args []string, stdout, stderr io.Writer) int {
 	opts.BranchDetails = !short
 	opts.DirtyDetails = !short
 
+	var diagnosticsFile *os.File
+	if diagnosticsPath != "" {
+		diagnosticsFile, err = os.OpenFile(diagnosticsPath, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+		if err != nil {
+			fmt.Fprintf(stderr, "git-comb: diagnostics: %v\n", err)
+			return 2
+		}
+		opts.Diagnostics, err = comb.NewDiagnostics(diagnosticsFile, version)
+		if err != nil {
+			_ = diagnosticsFile.Close()
+			fmt.Fprintf(stderr, "git-comb: diagnostics: %v\n", err)
+			return 2
+		}
+		defer func() {
+			if opts.Diagnostics.Err() != nil {
+				code = 2
+			}
+			if err := opts.Diagnostics.Finish(code); err != nil {
+				fmt.Fprintf(stderr, "git-comb: diagnostics: %v\n", err)
+				code = 2
+			}
+			if err := diagnosticsFile.Close(); err != nil {
+				fmt.Fprintf(stderr, "git-comb: diagnostics: %v\n", err)
+				code = 2
+			}
+		}()
+	}
+
 	// Scan defaults come from git config; explicitly set flags win,
 	// and prune values merge rather than replace.
-	settings, err := comb.LoadSettings(".")
+	var configStarted time.Time
+	if opts.Diagnostics != nil {
+		configStarted = time.Now()
+	}
+	settings, err := comb.LoadSettingsWithDiagnostics(".", opts.Diagnostics)
+	if opts.Diagnostics != nil {
+		opts.Diagnostics.Phase("config", configStarted, nil)
+	}
 	if err != nil {
 		fmt.Fprintf(stderr, "git-comb: config: %v\n", err)
 		return 2
@@ -202,11 +242,22 @@ func run(args []string, stdout, stderr io.Writer) int {
 		}
 		opts.Only = opts.Only.Minus(hidden)
 	}
+	if opts.Diagnostics != nil {
+		opts.Diagnostics.Options(comb.DiagnosticOptions{
+			Roots: len(opts.Roots), Jobs: opts.Jobs, Prunes: len(opts.Prune),
+			Selection: opts.Only.String(), Short: short, All: opts.All,
+			Fetch: opts.Fetch, Hidden: opts.Hidden, NoIgnores: opts.NoIgnores,
+		})
+	}
 
 	reports, err := comb.Run(opts)
 	if err != nil {
 		fmt.Fprintf(stderr, "git-comb: %v\n", err)
 		return 2
+	}
+	var renderStarted time.Time
+	if opts.Diagnostics != nil {
+		renderStarted = time.Now()
 	}
 	attention, failed := comb.Render(stdout, reports, comb.RenderOptions{
 		Roots: opts.Roots,
@@ -216,6 +267,9 @@ func run(args []string, stdout, stderr io.Writer) int {
 		Width: outputWidth(stdout),
 		Only:  opts.Only,
 	})
+	if opts.Diagnostics != nil {
+		opts.Diagnostics.Phase("rendering", renderStarted, map[string]int{"repositories": len(reports)})
+	}
 	ackedRepos, ackedBranches := 0, 0
 	for _, r := range reports {
 		if r.Ignored {

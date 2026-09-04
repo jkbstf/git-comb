@@ -21,7 +21,7 @@ func TestCompletionScriptsCoverEveryLongOption(t *testing.T) {
 		"only-offline", "exclude-dirty", "exclude-unpushed", "exclude-ahead",
 		"exclude-behind", "exclude-stashed", "exclude-empty", "exclude-local",
 		"exclude-offline", "only", "except", "jobs", "fetch", "hidden", "prune",
-		"no-ignores", "color", "version", "help",
+		"no-ignores", "color", "diagnostics", "version", "help",
 	}
 	for _, path := range paths {
 		content, err := os.ReadFile(path)
@@ -112,6 +112,12 @@ func TestBashCompletionBehavior(t *testing.T) {
 			cword:  "2",
 			want:   []string{"DUA", "DUB", "DUS", "DUE", "DUL", "DUO"},
 			reject: []string{"DUD", "DUU"},
+		},
+		{
+			name:  "diagnostic file",
+			words: "git-comb --diagnostics REA",
+			cword: "2",
+			want:  []string{"README.md"},
 		},
 	}
 	for _, tt := range tests {

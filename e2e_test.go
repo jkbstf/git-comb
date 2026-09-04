@@ -6,6 +6,8 @@ package main
 // builds the binary once; -short or a missing git skips the layer.
 
 import (
+	"bufio"
+	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
@@ -230,6 +232,77 @@ func TestE2EKitchenSink(t *testing.T) {
 		if !strings.Contains(res.stderr, wantErr) {
 			t.Errorf("stderr missing %q: %q", wantErr, res.stderr)
 		}
+	}
+}
+
+func TestE2EDiagnosticsArePrivateAndDoNotChangeResults(t *testing.T) {
+	requireBinary(t)
+	e2eEnv(t)
+	const secret = "PRIVATE-CUSTOMER-CANARY-7e42"
+	t.Setenv("GIT_COMB_PRIVATE_ENV", secret+"-environment")
+	t.Setenv("USER", secret+"-user")
+	t.Setenv("USERNAME", secret+"-username")
+	t.Setenv("HOSTNAME", secret+"-hostname")
+
+	base := filepath.Join(t.TempDir(), secret+"-root")
+	repo := filepath.Join(base, secret+"-repository")
+	bare := filepath.Join(t.TempDir(), secret+"-remote.git")
+	e2eSynced(t, repo, bare)
+	e2eGit(t, repo, "checkout", "--quiet", "-b", secret+"-branch")
+	e2eCommit(t, repo, secret+"-contents\n", secret+"-message")
+	e2eGit(t, repo, "remote", "add", secret+"-remote-name", bare)
+	e2eGit(t, repo, "config", "--add", "comb.ignoreBranch", secret+"-ignored/*")
+	broken := filepath.Join(base, secret+"-broken-repository")
+	if err := os.MkdirAll(broken, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	brokenTarget := filepath.Join(t.TempDir(), secret+"-missing-git-directory")
+	if err := os.WriteFile(filepath.Join(broken, ".git"), []byte("gitdir: "+brokenTarget+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	baseline := runBinary(t, base)
+	diagnostic := filepath.Join(t.TempDir(), secret+"-diagnostic-name.jsonl")
+	withDiagnostics := runBinary(t, "--diagnostics", diagnostic, base)
+	if withDiagnostics != baseline {
+		t.Fatalf("diagnostics changed the result:\nbaseline: %+v\nwith diagnostics: %+v", baseline, withDiagnostics)
+	}
+
+	content, err := os.ReadFile(diagnostic)
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(content)
+	for _, private := range []string{
+		secret, base, repo, bare, diagnostic,
+		broken, brokenTarget, os.Getenv("GIT_CONFIG_GLOBAL"),
+		os.Getenv("GIT_COMB_PRIVATE_ENV"), os.Getenv("USER"),
+		os.Getenv("USERNAME"), os.Getenv("HOSTNAME"),
+	} {
+		if private != "" && strings.Contains(text, private) {
+			t.Fatalf("diagnostics leaked %q:\n%s", private, text)
+		}
+	}
+	for _, forbidden := range []string{`"path"`, `"argv"`, `"output"`, `"error"`, `"environment"`, `"hostname"`, `"username"`, `"timestamp"`, `"pid"`, `"branch"`, `"remote"`, `"url"`} {
+		if strings.Contains(text, forbidden) {
+			t.Fatalf("diagnostics contain forbidden field %s:\n%s", forbidden, text)
+		}
+	}
+
+	scanner := bufio.NewScanner(strings.NewReader(text))
+	events := 0
+	for scanner.Scan() {
+		var event map[string]any
+		if err := json.Unmarshal(scanner.Bytes(), &event); err != nil {
+			t.Fatalf("diagnostic line %d: %v\n%s", events+1, err, scanner.Text())
+		}
+		events++
+	}
+	if err := scanner.Err(); err != nil {
+		t.Fatal(err)
+	}
+	if events == 0 || !strings.Contains(text, `"event":"run_end"`) {
+		t.Fatalf("diagnostic stream is incomplete:\n%s", text)
 	}
 }
 

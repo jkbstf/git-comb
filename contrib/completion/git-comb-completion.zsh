@@ -87,6 +87,7 @@ _git_comb_options ()
 		'--prune:skip directories matching a glob'
 		'--no-ignores:disregard configured acknowledgments'
 		'--color:control colored output'
+		'--diagnostics:write privacy-safe performance diagnostics'
 		'--version:print the version and exit'
 		'--help:show help'
 	)
@@ -137,6 +138,10 @@ _git_comb ()
 			_directories
 			return
 			;;
+		--diagnostics)
+			_files
+			return
+			;;
 	esac
 
 	case $cur in
@@ -155,6 +160,10 @@ _git_comb ()
 		--prune=*)
 			compset -P '--prune='
 			_directories
+			;;
+		--diagnostics=*)
+			compset -P '--diagnostics='
+			_files
 			;;
 		-o?*|-x?*)
 			compset -P '-[ox]'
@@ -198,6 +207,7 @@ _git_comb_direct ()
 		'*--prune[skip directories matching a glob]:directory glob:_directories' \
 		'--no-ignores[disregard configured acknowledgments]' \
 		'--color[control colored output]:color mode:(auto always never)' \
+		'--diagnostics[write privacy-safe performance diagnostics]:file:_files' \
 		'--version[print the version and exit]' \
 		'(-h --help)'{-h,--help}'[show help]' \
 		'*:directory:_directories'

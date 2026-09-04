@@ -10,17 +10,17 @@ import (
 // staged and unstaged together. On an unborn branch, an empty tree is
 // used in place of HEAD. Untracked files come from porcelain status
 // because a Git diff deliberately excludes them.
-func worktreeShortStat(repo string, st worktreeStatus) (ShortStat, error) {
+func worktreeShortStat(git gitRunner, repo string, st worktreeStatus) (ShortStat, error) {
 	base := "HEAD"
 	if st.Unborn {
-		emptyTree, err := gitOutInput(repo, "", "hash-object", "-t", "tree", "--stdin")
+		emptyTree, err := git.outInput(repo, "empty_tree", "", "hash-object", "-t", "tree", "--stdin")
 		if err != nil {
 			return ShortStat{}, err
 		}
 		base = strings.TrimSpace(emptyTree)
 	}
 
-	out, err := gitOut(repo, "diff", "--no-ext-diff", "--numstat", base, "--")
+	out, err := git.out(repo, "dirty_diff", "diff", "--no-ext-diff", "--numstat", base, "--")
 	if err != nil {
 		return ShortStat{}, err
 	}

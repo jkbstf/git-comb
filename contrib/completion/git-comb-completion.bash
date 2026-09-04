@@ -4,7 +4,7 @@
 # extension point Git uses for external subcommands, while the registration at
 # the bottom also completes the git-comb executable directly.
 
-__git_comb_options='--short --all --only-dirty --only-unpushed --only-ahead --only-behind --only-stashed --only-empty --only-local --only-offline --exclude-dirty --exclude-unpushed --exclude-ahead --exclude-behind --exclude-stashed --exclude-empty --exclude-local --exclude-offline --only --except --jobs --fetch --hidden --prune --no-ignores --color --version --help'
+__git_comb_options='--short --all --only-dirty --only-unpushed --only-ahead --only-behind --only-stashed --only-empty --only-local --only-offline --exclude-dirty --exclude-unpushed --exclude-ahead --exclude-behind --exclude-stashed --exclude-empty --exclude-local --exclude-offline --only --except --jobs --fetch --hidden --prune --no-ignores --color --diagnostics --version --help'
 
 __git_comb_words ()
 {
@@ -22,6 +22,15 @@ __git_comb_directories ()
 	while IFS= read -r candidate; do
 		COMPREPLY+=("$prefix$candidate")
 	done < <(compgen -d -- "$current")
+}
+
+__git_comb_files ()
+{
+	local current=$1 prefix=${2-} candidate
+	COMPREPLY=()
+	while IFS= read -r candidate; do
+		COMPREPLY+=("$prefix$candidate")
+	done < <(compgen -f -- "$current")
 }
 
 __git_comb_signs ()
@@ -61,6 +70,10 @@ _git_comb ()
 			__git_comb_directories "$current"
 			return
 			;;
+		--diagnostics)
+			__git_comb_files "$current"
+			return
+			;;
 	esac
 
 	case "$current" in
@@ -83,6 +96,11 @@ _git_comb ()
 			prefix=--prune=
 			value=${current#*=}
 			__git_comb_directories "$value" "$prefix"
+			;;
+		--diagnostics=*)
+			prefix=--diagnostics=
+			value=${current#*=}
+			__git_comb_files "$value" "$prefix"
 			;;
 		-o?*|-x?*)
 			prefix=${current:0:2}

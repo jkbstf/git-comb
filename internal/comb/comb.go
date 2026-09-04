@@ -11,6 +11,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"time"
 )
 
 // Options configure a Run.
@@ -41,6 +42,9 @@ type Options struct {
 	// NoIgnores disregards comb.ignore and comb.ignoreBranch, showing
 	// the unfiltered truth.
 	NoIgnores bool
+	// Diagnostics records privacy-safe performance metadata. Nil keeps
+	// diagnostics fully disabled.
+	Diagnostics *Diagnostics
 }
 
 // PruneList collects the repeatable --prune flag values.
@@ -72,10 +76,22 @@ func DefaultJobs() int {
 // Run discovers every repository under the roots and probes each one,
 // returning reports sorted by path.
 func Run(opts Options) ([]Report, error) {
-	repos, err := Scan(opts.Roots, opts.Hidden, opts.Prune)
+	var started time.Time
+	if opts.Diagnostics != nil {
+		started = time.Now()
+	}
+	repos, stats, err := scan(opts.Roots, opts.Hidden, opts.Prune)
+	if opts.Diagnostics != nil {
+		opts.Diagnostics.Phase("discovery", started, map[string]int{
+			"entries": stats.entries, "directories": stats.directories,
+			"hidden_skipped": stats.hiddenSkipped, "pruned": stats.pruned,
+			"unreadable": stats.unreadable, "repositories": len(repos),
+		})
+	}
 	if err != nil {
 		return nil, err
 	}
+	opts.Diagnostics.RegisterRepositories(repos)
 	reports := probeAll(repos, opts)
 	slices.SortFunc(reports, func(a, b Report) int { return strings.Compare(a.Path, b.Path) })
 	return reports, nil
@@ -87,19 +103,40 @@ func Run(opts Options) ([]Report, error) {
 // shared-state counting and once-per-repository fetching, so when the
 // run needs none of those every repository simply stands alone.
 func probeAll(repos []string, opts Options) []Report {
+	git := gitRunner{diagnostics: opts.Diagnostics}
 	jobs := opts.Jobs
 	if jobs < 1 {
 		jobs = 1
 	}
 	var carriers, linked []bool
+	var phaseStarted time.Time
+	if opts.Diagnostics != nil {
+		phaseStarted = time.Now()
+	}
 	if opts.Fetch || opts.Only.Has('U') || opts.Only.Has('A') || opts.Only.Has('B') || opts.Only.Has('S') {
-		carriers, linked = electCarriers(repos, jobs)
+		carriers, linked = electCarriers(git, repos, jobs)
 	} else {
 		carriers = make([]bool, len(repos))
 		linked = make([]bool, len(repos))
 		for i := range carriers {
 			carriers[i] = true
 		}
+	}
+	if opts.Diagnostics != nil {
+		groups, linkedWorktrees := 0, 0
+		for i := range carriers {
+			if carriers[i] {
+				groups++
+			}
+			if linked[i] {
+				linkedWorktrees++
+			}
+		}
+		opts.Diagnostics.Phase("grouping", phaseStarted, map[string]int{
+			"groups": groups, "linked_worktrees": linkedWorktrees,
+			"repositories": len(repos),
+		})
+		phaseStarted = time.Now()
 	}
 	sem := make(chan struct{}, jobs)
 	reports := make([]Report, len(repos))
@@ -108,12 +145,24 @@ func probeAll(repos []string, opts Options) []Report {
 		wg.Add(1)
 		go func(i int, repo string) {
 			defer wg.Done()
+			var queued time.Time
+			if opts.Diagnostics != nil {
+				queued = time.Now()
+			}
 			sem <- struct{}{}
 			defer func() { <-sem }()
-			reports[i] = probe(repo, opts, carriers[i], linked[i])
+			var started time.Time
+			if opts.Diagnostics != nil {
+				started = opts.Diagnostics.RepositoryStart(repo, queued)
+				defer opts.Diagnostics.RepositoryEnd(repo, started)
+			}
+			reports[i] = probe(git, repo, opts, carriers[i], linked[i])
 		}(i, repo)
 	}
 	wg.Wait()
+	if opts.Diagnostics != nil {
+		opts.Diagnostics.Phase("probing", phaseStarted, map[string]int{"repositories": len(repos)})
+	}
 	return reports
 }
 
@@ -124,7 +173,7 @@ func probeAll(repos []string, opts Options) []Report {
 // its primary must still report the repository's unpushed work. A
 // worktree that cannot be classified forms its own group so its probe
 // surfaces the error.
-func electCarriers(repos []string, jobs int) (carriers, linked []bool) {
+func electCarriers(git gitRunner, repos []string, jobs int) (carriers, linked []bool) {
 	type location struct {
 		gitDir, commonDir string
 		ok                bool
@@ -139,7 +188,7 @@ func electCarriers(repos []string, jobs int) (carriers, linked []bool) {
 			defer wg.Done()
 			sem <- struct{}{}
 			defer func() { <-sem }()
-			out, err := gitOut(repo, "rev-parse", "--path-format=absolute", "--git-dir", "--git-common-dir")
+			out, err := git.out(repo, "classify_worktree", "rev-parse", "--path-format=absolute", "--git-dir", "--git-common-dir")
 			if err != nil {
 				return
 			}

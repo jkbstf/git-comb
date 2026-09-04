@@ -112,7 +112,7 @@ func syncedRepo(t *testing.T) (repo, bare string) {
 // probeAlone probes a repository standing on its own: it is the
 // carrier of its one-member group and not a linked worktree.
 func probeAlone(repo string, opts Options) Report {
-	return probe(repo, opts, true, false)
+	return probe(gitRunner{diagnostics: opts.Diagnostics}, repo, opts, true, false)
 }
 
 func TestProbeCleanRepo(t *testing.T) {
@@ -462,7 +462,7 @@ func TestInspectBranchesReportsDetailFailure(t *testing.T) {
 	repo, _ := syncedRepo(t)
 	refs := []branchRef{{Name: "missing"}}
 
-	_, _, _, err := inspectBranches(repo, refs, []string{"missing"}, Options{BranchDetails: true})
+	_, _, _, err := inspectBranches(gitRunner{}, repo, refs, []string{"missing"}, Options{BranchDetails: true})
 	if err == nil {
 		t.Error("missing branch accepted while gathering per-branch detail")
 	}
@@ -528,7 +528,7 @@ func TestProbeNonCarrierNeverFetches(t *testing.T) {
 		t.Fatalf("remove bare: %v", err)
 	}
 
-	if r := probe(repo, Options{Fetch: true}, false, true); r.FetchFailed {
+	if r := probe(gitRunner{}, repo, Options{Fetch: true}, false, true); r.FetchFailed {
 		t.Error("non-carrier probe fetched (FetchFailed set despite carrier=false)")
 	}
 }
@@ -693,7 +693,7 @@ func TestProbeOnlyGatesProbes(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	r := probe(repo, Options{Only: onlyD}, true, false)
+	r := probe(gitRunner{}, repo, Options{Only: onlyD}, true, false)
 	if r.Err != nil {
 		t.Fatalf("probe: %v", r.Err)
 	}
@@ -708,7 +708,7 @@ func TestProbeOnlyGatesProbes(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	r = probe(repo, Options{Only: onlyU}, true, false)
+	r = probe(gitRunner{}, repo, Options{Only: onlyU}, true, false)
 	if r.Err != nil {
 		t.Fatalf("probe: %v", r.Err)
 	}

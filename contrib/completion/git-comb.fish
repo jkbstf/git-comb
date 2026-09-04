@@ -91,6 +91,7 @@ for command in git-comb git
 	complete -c $command -n __git_comb_using_command -l prune -r -a '(__fish_complete_directories (commandline -ct))' -d 'Skip directories matching a glob'
 	complete -c $command -n __git_comb_using_command -l no-ignores -d 'Disregard configured acknowledgments'
 	complete -c $command -n __git_comb_using_command -f -l color -r -a 'auto always never' -d 'Control colored output'
+	complete -c $command -n __git_comb_using_command -l diagnostics -r -d 'Write privacy-safe performance diagnostics'
 	complete -c $command -n __git_comb_using_command -l version -d 'Print the version and exit'
 	complete -c $command -n __git_comb_using_command -s h -l help -d 'Show help'
 	complete -c $command -n __git_comb_using_command -f -a '(__fish_complete_directories (commandline -ct))'

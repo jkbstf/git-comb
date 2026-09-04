@@ -168,6 +168,36 @@ visible.
 | `--prune GLOB` | skip directories matching GLOB (repeatable) |
 | `--no-ignores` | disregard `comb.ignore` and `comb.ignoreBranch` |
 | `--color WHEN` | `auto` (default), `always`, or `never` |
+| `--diagnostics FILE` | write privacy-safe performance diagnostics |
+
+### Privacy-safe diagnostics
+
+When a scan is unexpectedly slow, `--diagnostics FILE` writes a local JSON
+Lines report that can be inspected or shared with an issue report:
+
+```sh
+git comb --diagnostics /tmp/git-comb-diagnostics.jsonl ~/Projects
+```
+
+In PowerShell:
+
+```powershell
+git comb --diagnostics "$env:TEMP\git-comb-diagnostics.jsonl" "$HOME\Projects"
+```
+
+Diagnostics are opt-in and are never uploaded. The file contains relative
+timings, fixed Git operation categories, anonymous run-local repository IDs,
+aggregate counts, concurrency, exit codes, the git-comb and Go versions, and
+the operating system and architecture needed to compare performance.
+Aggregate operational metadata such as repository and process counts is
+therefore visible.
+
+The report never contains filesystem paths, repository or branch names,
+remotes or URLs, command arguments, command output, error messages,
+environment values, user or host names, process IDs, absolute timestamps, or
+machine identifiers. There is no option to include those values. The
+diagnostic file is created with owner-only permissions where the platform
+supports them, and an existing file is never overwritten.
 
 The descriptive `--only-*` flags combine, so this scans only for
 uncommitted changes, unpushed commits, and branches ahead of upstream:

@@ -76,7 +76,7 @@ func TestRepoIgnoresReadsBothKeys(t *testing.T) {
 	mustGit(t, repo, "config", "--add", "comb.ignoreBranch", "backup/*")
 	mustGit(t, repo, "config", "--add", "comb.ignoreBranch", "spike/*")
 
-	ignored, globs, err := repoIgnores(repo)
+	ignored, globs, err := repoIgnores(gitRunner{}, repo)
 	if err != nil {
 		t.Fatalf("repoIgnores: %v", err)
 	}

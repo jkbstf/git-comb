@@ -46,7 +46,13 @@ var namedExcludeConfigKeys = map[string]byte{
 // visible from dir — global and system config everywhere, plus the
 // local config when dir sits inside a repository.
 func LoadSettings(dir string) (Settings, error) {
-	entries, err := configEntries(dir)
+	return LoadSettingsWithDiagnostics(dir, nil)
+}
+
+// LoadSettingsWithDiagnostics is LoadSettings with privacy-safe command
+// timing enabled for a diagnostic run.
+func LoadSettingsWithDiagnostics(dir string, diagnostics *Diagnostics) (Settings, error) {
+	entries, err := configEntries(gitRunner{diagnostics: diagnostics}, dir)
 	if err != nil {
 		return Settings{}, err
 	}
@@ -110,8 +116,8 @@ func configuredSigns(selected map[byte]bool) string {
 // silences the whole repository, comb.ignoreBranch globs acknowledge
 // deliberately local-only branches. Both merge local over global, so
 // a global glob applies everywhere and a local one to that clone.
-func repoIgnores(repo string) (ignored bool, globs []string, err error) {
-	entries, err := configEntries(repo)
+func repoIgnores(git gitRunner, repo string) (ignored bool, globs []string, err error) {
+	entries, err := configEntries(git, repo)
 	if err != nil {
 		return false, nil, err
 	}
@@ -137,8 +143,8 @@ type configEntry struct {
 
 // configEntries lists every comb.* config entry visible from dir.
 // git exits 1 when nothing matches; that simply means no settings.
-func configEntries(dir string) ([]configEntry, error) {
-	out, err := gitOut(dir, "config", "-z", "--get-regexp", `^comb\.`)
+func configEntries(git gitRunner, dir string) ([]configEntry, error) {
+	out, err := git.out(dir, "config", "config", "-z", "--get-regexp", `^comb\.`)
 	if err != nil {
 		if strings.Contains(err.Error(), "exit status 1") {
 			return nil, nil

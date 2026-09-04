@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strings"
 	"testing"
@@ -57,10 +58,48 @@ func TestRunHelp(t *testing.T) {
 	if code := run([]string{"--help"}, &stdout, &stderr); code != 0 {
 		t.Errorf("exit = %d, want 0", code)
 	}
-	for _, want := range []string{"Usage: git comb", "--short", "--only-dirty", "--exclude-dirty", "--fetch", "Exit status"} {
+	for _, want := range []string{"Usage: git comb", "--short", "--only-dirty", "--exclude-dirty", "--fetch", "--diagnostics", "Exit status"} {
 		if !strings.Contains(stdout.String(), want) {
 			t.Errorf("help output missing %q", want)
 		}
+	}
+}
+
+func TestRunDiagnosticsDoNotOverwrite(t *testing.T) {
+	isolateConfig(t)
+	diagnostic := filepath.Join(t.TempDir(), "diagnostics.jsonl")
+	if err := os.WriteFile(diagnostic, []byte("keep\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	var stdout, stderr bytes.Buffer
+	if code := run([]string{"--diagnostics", diagnostic, t.TempDir()}, &stdout, &stderr); code != 2 {
+		t.Fatalf("exit = %d, want 2", code)
+	}
+	content, err := os.ReadFile(diagnostic)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(content) != "keep\n" {
+		t.Fatalf("existing diagnostics changed to %q", content)
+	}
+}
+
+func TestRunDiagnosticsUsePrivatePermissions(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Windows does not expose Unix permission bits")
+	}
+	isolateConfig(t)
+	diagnostic := filepath.Join(t.TempDir(), "diagnostics.jsonl")
+	var stdout, stderr bytes.Buffer
+	if code := run([]string{"--diagnostics", diagnostic, t.TempDir()}, &stdout, &stderr); code != 0 {
+		t.Fatalf("exit = %d, want 0: %s", code, stderr.String())
+	}
+	info, err := os.Stat(diagnostic)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := info.Mode().Perm(); got != 0o600 {
+		t.Fatalf("diagnostic permissions = %o, want 600", got)
 	}
 }
 

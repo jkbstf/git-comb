@@ -2,6 +2,7 @@ package comb
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -52,16 +53,22 @@ func isRepoLocationVar(name string) bool {
 // invocation passes --no-optional-locks so a probe can never take a
 // lock an editor or IDE is waiting on.
 func gitOut(repo string, args ...string) (string, error) {
-	return gitOutput(repo, nil, args...)
+	return (gitRunner{}).out(repo, args[0], args...)
 }
 
-// gitOutInput is gitOut with explicit standard input, including an
-// intentionally empty stream.
-func gitOutInput(repo, input string, args ...string) (string, error) {
-	return gitOutput(repo, strings.NewReader(input), args...)
+type gitRunner struct {
+	diagnostics *Diagnostics
 }
 
-func gitOutput(repo string, stdin io.Reader, args ...string) (string, error) {
+func (g gitRunner) out(repo, operation string, args ...string) (string, error) {
+	return g.output(repo, operation, nil, args...)
+}
+
+func (g gitRunner) outInput(repo, operation, input string, args ...string) (string, error) {
+	return g.output(repo, operation, strings.NewReader(input), args...)
+}
+
+func (g gitRunner) output(repo, operation string, stdin io.Reader, args ...string) (string, error) {
 	argv := append([]string{"-C", repo, "--no-optional-locks"}, args...)
 	cmd := exec.Command("git", argv...)
 	cmd.Env = gitEnv()
@@ -69,7 +76,18 @@ func gitOutput(repo string, stdin io.Reader, args ...string) (string, error) {
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
-	if err := cmd.Run(); err != nil {
+	span := g.diagnostics.startGit(repo, operation)
+	err := cmd.Run()
+	result, exitCode := "ok", 0
+	if err != nil {
+		result, exitCode = "start_error", -1
+		var exitErr *exec.ExitError
+		if errors.As(err, &exitErr) {
+			result, exitCode = "exit", exitErr.ExitCode()
+		}
+	}
+	span.end(result, exitCode)
+	if err != nil {
 		msg := strings.TrimSpace(stderr.String())
 		if msg == "" {
 			msg = err.Error()
@@ -79,9 +97,8 @@ func gitOutput(repo string, stdin io.Reader, args ...string) (string, error) {
 	return stdout.String(), nil
 }
 
-// gitCount runs a git command whose entire output is one integer.
-func gitCount(repo string, args ...string) (int, error) {
-	out, err := gitOut(repo, args...)
+func (g gitRunner) count(repo, operation string, args ...string) (int, error) {
+	out, err := g.out(repo, operation, args...)
 	if err != nil {
 		return 0, err
 	}

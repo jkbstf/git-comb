@@ -5,6 +5,7 @@ import (
 	"path"
 	"strings"
 	"sync"
+	"time"
 )
 
 // fetchMu keeps interactive authentication usable when several
@@ -12,10 +13,17 @@ import (
 // but only one fetch may own the terminal at a time.
 var fetchMu sync.Mutex
 
-func fetch(repo string) error {
+func fetch(git gitRunner, repo string) error {
+	var waiting time.Time
+	if git.diagnostics != nil {
+		waiting = time.Now()
+	}
 	fetchMu.Lock()
+	if git.diagnostics != nil {
+		git.diagnostics.Wait(repo, "fetch", waiting)
+	}
 	defer fetchMu.Unlock()
-	_, err := gitOut(repo, "fetch", "--all", "--quiet")
+	_, err := git.out(repo, "fetch", "fetch", "--all", "--quiet")
 	return err
 }
 
@@ -33,7 +41,7 @@ func fetch(repo string) error {
 //
 // Finding classes outside opts.Only are not probed at all, so a
 // narrow scan is also a fast one.
-func probe(repo string, opts Options, carrier, linked bool) Report {
+func probe(git gitRunner, repo string, opts Options, carrier, linked bool) Report {
 	r := Report{Path: repo, Linked: linked}
 	needUnpushed := opts.Only.Has('U')
 	needAhead := opts.Only.Has('A')
@@ -45,7 +53,7 @@ func probe(repo string, opts Options, carrier, linked bool) Report {
 
 	var ackGlobs []string
 	if !opts.NoIgnores {
-		ignored, globs, err := repoIgnores(repo)
+		ignored, globs, err := repoIgnores(git, repo)
 		if err != nil {
 			r.Err = err
 			return r
@@ -58,7 +66,7 @@ func probe(repo string, opts Options, carrier, linked bool) Report {
 	}
 
 	if opts.Fetch && carrier {
-		if err := fetch(repo); err != nil {
+		if err := fetch(git, repo); err != nil {
 			r.FetchFailed = true
 		}
 	}
@@ -71,7 +79,7 @@ func probe(repo string, opts Options, carrier, linked bool) Report {
 	if !opts.Only.Has('D') {
 		untracked = "-uno"
 	}
-	out, err := gitOut(repo, "status", "--porcelain=v2", "--branch", untracked)
+	out, err := git.out(repo, "status", "status", "--porcelain=v2", "--branch", untracked)
 	if err != nil {
 		r.Err = err
 		return r
@@ -82,13 +90,13 @@ func probe(repo string, opts Options, carrier, linked bool) Report {
 	if opts.DirtyDetails && r.Dirty {
 		// Detail is presentational: an unusual diff failure must not
 		// hide an otherwise valid dirty finding.
-		if stat, err := worktreeShortStat(repo, st); err == nil {
+		if stat, err := worktreeShortStat(git, repo, st); err == nil {
 			r.DirtyStat = stat
 		}
 	}
 
 	if needRemotes {
-		remotes, err := gitOut(repo, "remote")
+		remotes, err := git.out(repo, "remotes", "remote")
 		if err != nil {
 			r.Err = err
 			return r
@@ -100,7 +108,7 @@ func probe(repo string, opts Options, carrier, linked bool) Report {
 	// orphan checkout, other branches can still hold unpushed work.
 	var branches []branchRef
 	if (st.Unborn && (needEmpty || needUnpushed)) || (carrier && (needUnpushed || needSync)) {
-		branches, err = listBranchRefs(repo, needSync || opts.BranchDetails)
+		branches, err = listBranchRefs(git, repo, needSync || opts.BranchDetails)
 		if err != nil {
 			r.Err = err
 			return r
@@ -136,7 +144,7 @@ func probe(repo string, opts Options, carrier, linked bool) Report {
 					args = append(args, "refs/heads/"+name)
 				}
 				args = append(args, "--not", "--remotes")
-				n, err := gitCount(repo, args...)
+				n, err := git.count(repo, "unpushed_aggregate", args...)
 				if err != nil {
 					r.Err = err
 					return r
@@ -151,7 +159,7 @@ func probe(repo string, opts Options, carrier, linked bool) Report {
 			}
 		}
 		if st.Detached {
-			n, err := gitCount(repo, "rev-list", "--count", "HEAD", "--not", "--remotes", "--branches")
+			n, err := git.count(repo, "detached_unpushed", "rev-list", "--count", "HEAD", "--not", "--remotes", "--branches")
 			if err != nil {
 				r.Err = err
 				return r
@@ -163,13 +171,13 @@ func probe(repo string, opts Options, carrier, linked bool) Report {
 	if carrier && needStash {
 		// refs/stash does not exist when there are no stashes; that
 		// error simply means zero.
-		if n, err := gitCount(repo, "rev-list", "--walk-reflogs", "--count", "refs/stash"); err == nil {
+		if n, err := git.count(repo, "stash", "rev-list", "--walk-reflogs", "--count", "refs/stash"); err == nil {
 			r.Stashes = n
 		}
 	}
 
 	if carrier && (needUnpushed || needSync) {
-		states, ahead, behind, err := inspectBranches(repo, branches, kept, opts)
+		states, ahead, behind, err := inspectBranches(git, repo, branches, kept, opts)
 		if err != nil {
 			r.Err = err
 			return r
@@ -179,7 +187,7 @@ func probe(repo string, opts Options, carrier, linked bool) Report {
 	if opts.BranchDetails && st.Detached && r.Unpushed > 0 {
 		// A detached HEAD is worktree-local and therefore cannot be
 		// represented by the carrier's local-branch enumeration.
-		if n, err := gitCount(repo, "rev-list", "--count", "HEAD", "--not", "--remotes", "--branches"); err == nil && n > 0 {
+		if n, err := git.count(repo, "detached_unpushed", "rev-list", "--count", "HEAD", "--not", "--remotes", "--branches"); err == nil && n > 0 {
 			r.Branches = append(r.Branches, BranchStatus{
 				Name: "(detached HEAD)", Unpushed: n, InWorktree: true, Detached: true,
 			})
